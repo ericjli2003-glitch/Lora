@@ -1,4 +1,6 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { checkWithOpenAI } from './services/openai.js';
 import { checkWithAnthropic } from './services/anthropic.js';
@@ -7,13 +9,21 @@ import { checkWithPerplexity } from './services/perplexity.js';
 import { aggregateVerdicts } from './services/aggregator.js';
 import { checkVideoFromURL, checkVideoFromBase64, generateSpokenResponse } from './services/video.js';
 import { extractYouTubeTranscript, chunkTranscript, formatTranscriptPreview } from './services/transcript.js';
+import { extractFromImage, factCheckImage } from './services/image.js';
 
 dotenv.config();
 
 const app = express();
 
+// ES module dirname workaround
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Increase payload limit for video uploads (50MB)
 app.use(express.json({ limit: '50mb' }));
+
+// Serve static files (web UI)
+app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
 
@@ -174,6 +184,107 @@ app.post('/api/check-video', async (req, res) => {
     console.error('Video analysis error:', error);
     res.status(500).json(errorResponse(
       'Video analysis failed',
+      { error: error.message }
+    ));
+  }
+});
+
+// =============================================================================
+// POST /api/check-image - Image/Screenshot fact-checking (Gemini)
+// =============================================================================
+
+app.post('/api/check-image', async (req, res) => {
+  const { base64, mimeType = 'image/png', url } = req.body;
+
+  if (!base64 && !url) {
+    return res.status(400).json(errorResponse(
+      'Missing image data. Provide "base64" or "url" field.',
+      { received: { hasBase64: !!base64, hasUrl: !!url } }
+    ));
+  }
+
+  console.log(`\n🖼️  Analyzing image...`);
+
+  try {
+    let imageBase64 = base64;
+    let imageMimeType = mimeType;
+
+    // If URL provided, fetch the image
+    if (url && !base64) {
+      console.log(`   Fetching from URL: ${url.substring(0, 50)}...`);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      imageBase64 = Buffer.from(arrayBuffer).toString('base64');
+      imageMimeType = response.headers.get('content-type') || 'image/png';
+    }
+
+    // Step 1: Extract claims from image
+    const extracted = await extractFromImage(imageBase64, imageMimeType);
+    console.log(`   Found claims: ${extracted.claims?.length || 0}`);
+    console.log(`   Main claim: "${extracted.mainClaim || 'none'}"`);
+
+    // Step 2: If we have a main claim, fact-check it with all AIs
+    let loraVerdict = 'UNKNOWN';
+    let loraMessage = "Lora did a quick search and found mixed results, so the truth is unclear.";
+    let sources = getSources('UNKNOWN', '');
+
+    if (extracted.mainClaim) {
+      // Run through multi-AI consensus
+      const results = await Promise.allSettled([
+        checkWithOpenAI(extracted.mainClaim),
+        checkWithAnthropic(extracted.mainClaim),
+        checkWithGoogle(extracted.mainClaim),
+        checkWithPerplexity(extracted.mainClaim)
+      ]);
+
+      const responses = [];
+      const models = ['OpenAI', 'Anthropic', 'Google', 'Perplexity'];
+
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled' && result.value) {
+          responses.push({ model: models[index], ...result.value });
+          console.log(`   ✅ ${models[index]}: ${result.value.verdict}`);
+        } else {
+          console.log(`   ❌ ${models[index]}: Failed`);
+        }
+      });
+
+      if (responses.length > 0) {
+        const consensus = aggregateVerdicts(responses);
+        
+        if (consensus.verdict === 'false') {
+          loraVerdict = 'FALSE';
+          loraMessage = "Lora did a quick search and determined this claim is most likely FALSE.";
+        } else if (consensus.verdict === 'true') {
+          loraVerdict = 'TRUE';
+          loraMessage = "Lora did a quick search and determined this claim is most likely TRUE.";
+        }
+        
+        sources = getSources(loraVerdict, extracted.mainClaim);
+      }
+    }
+
+    console.log(`\n🎯 Lora Verdict: ${loraVerdict}`);
+
+    res.json({
+      success: true,
+      claim: extracted.mainClaim || 'No clear claim found',
+      loraVerdict: loraVerdict,
+      loraMessage: loraMessage,
+      sources: sources,
+      imageAnalysis: {
+        context: extracted.context,
+        allClaims: extracted.claims || []
+      }
+    });
+
+  } catch (error) {
+    console.error('Image analysis error:', error);
+    res.status(500).json(errorResponse(
+      'Image analysis failed',
       { error: error.message }
     ));
   }
@@ -569,8 +680,10 @@ function getSources(verdict, claim) {
 
 app.listen(PORT, () => {
   console.log(`\n🔮 Lora Backend running on http://localhost:${PORT}`);
-  console.log(`\n📡 Endpoints:`);
+  console.log(`\n🌐 Web UI: http://localhost:${PORT}`);
+  console.log(`\n📡 API Endpoints:`);
   console.log(`   POST /api/check            - Fact-check text (multi-AI consensus)`);
+  console.log(`   POST /api/check-image      - Fact-check image/screenshot (Gemini + multi-AI)`);
   console.log(`   POST /api/check-video      - Fact-check video (Gemini vision)`);
   console.log(`   POST /api/check-transcript - Fact-check video via transcript (multi-AI)`);
   console.log(`   POST /api/chat             - General LLM chat`);

@@ -1,0 +1,36 @@
+# Environment variables (API keys - NEVER commit!)
+.env
+.env.local
+.env.*.local
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+xcuserdata/
+
+# iOS
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# CocoaPods (if used later)
+Pods/
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+

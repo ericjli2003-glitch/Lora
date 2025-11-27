@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lora - AI Fact Checker</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: linear-gradient(135deg, #0d0d1a 0%, #1a1025 50%, #0d0d1a 100%);
+      min-height: 100vh;
+      color: #fff;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .logo {
+      width: 80px;
+      height: 80px;
+      background: radial-gradient(circle at 30% 30%, #6b8cff, #8b5cf6, #4c1d95);
+      border-radius: 50%;
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 40px rgba(139, 92, 246, 0.4);
+    }
+
+    .logo svg {
+      width: 40px;
+      height: 40px;
+      fill: white;
+    }
+
+    h1 {
+      font-size: 42px;
+      font-weight: 700;
+      background: linear-gradient(to bottom, #fff, #c4c9ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    /* Input Section */
+    .input-section {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    .input-label {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.6);
+      margin-bottom: 12px;
+      display: block;
+      font-weight: 500;
+    }
+
+    textarea {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 16px;
+      color: #fff;
+      font-size: 16px;
+      resize: none;
+      height: 120px;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: rgba(139, 92, 246, 0.5);
+    }
+
+    textarea::placeholder {
+      color: rgba(255, 255, 255, 0.3);
+    }
+
+    /* Buttons */
+    .button-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    button {
+      flex: 1;
+      padding: 14px 24px;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+      font-family: inherit;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #6b8cff, #8b5cf6);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(139, 92, 246, 0.4);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Image Upload */
+    .image-upload {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .upload-area {
+      border: 2px dashed rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .upload-area:hover {
+      border-color: rgba(139, 92, 246, 0.5);
+      background: rgba(139, 92, 246, 0.05);
+    }
+
+    .upload-area.has-image {
+      border-color: rgba(139, 92, 246, 0.5);
+    }
+
+    .upload-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .upload-text {
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 14px;
+    }
+
+    #imagePreview {
+      max-width: 100%;
+      max-height: 200px;
+      border-radius: 8px;
+      margin-top: 12px;
+      display: none;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    /* Result Section */
+    .result-section {
+      display: none;
+    }
+
+    .result-section.visible {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    .verdict {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .verdict-badge {
+      padding: 8px 20px;
+      border-radius: 100px;
+      font-weight: 700;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .verdict-badge.false {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .verdict-badge.true {
+      background: rgba(34, 197, 94, 0.2);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .verdict-badge.unknown {
+      background: rgba(234, 179, 8, 0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(234, 179, 8, 0.3);
+    }
+
+    .claim-text {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.6);
+      font-style: italic;
+    }
+
+    .lora-message {
+      font-size: 18px;
+      line-height: 1.6;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    /* Sources */
+    .sources-title {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-bottom: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .sources-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .source-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 10px;
+      color: #8b9fff;
+      text-decoration: none;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .source-link:hover {
+      background: rgba(139, 92, 246, 0.1);
+      color: #a5b4ff;
+    }
+
+    .source-icon {
+      font-size: 16px;
+    }
+
+    /* Loading */
+    .loading {
+      display: none;
+      text-align: center;
+      padding: 40px;
+    }
+
+    .loading.visible {
+      display: block;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(139, 92, 246, 0.2);
+      border-top-color: #8b5cf6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 14px;
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      color: rgba(255, 255, 255, 0.3);
+      font-size: 13px;
+    }
+
+    .footer span {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .models {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 8px;
+      font-family: 'SF Mono', monospace;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
+        </svg>
+      </div>
+      <h1>Lora</h1>
+      <p class="subtitle">AI-Powered Fact Checker</p>
+    </div>
+
+    <!-- Input Section -->
+    <div class="input-section">
+      <label class="input-label">Enter a claim to fact-check</label>
+      <textarea id="claimInput" placeholder="e.g., The Great Wall of China is visible from space..."></textarea>
+      
+      <div class="button-row">
+        <button class="btn-primary" id="checkBtn" onclick="checkClaim()">
+          Check with Lora
+        </button>
+        <button class="btn-secondary" onclick="clearAll()">
+          Clear
+        </button>
+      </div>
+
+      <div class="image-upload">
+        <label class="input-label">Or upload a screenshot</label>
+        <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+          <div class="upload-icon">📷</div>
+          <div class="upload-text">Click to upload an image</div>
+          <img id="imagePreview" alt="Preview">
+        </div>
+        <input type="file" id="fileInput" accept="image/*" onchange="handleImageUpload(event)">
+        <div class="button-row" id="imageButtons" style="display: none;">
+          <button class="btn-primary" onclick="checkImage()">
+            Check Image
+          </button>
+          <button class="btn-secondary" onclick="clearImage()">
+            Remove
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <div class="loading-text">Lora is analyzing with multiple AI models...</div>
+    </div>
+
+    <!-- Result Section -->
+    <div class="result-section" id="resultSection">
+      <div class="result-card">
+        <div class="verdict">
+          <span class="verdict-badge" id="verdictBadge">FALSE</span>
+          <span class="claim-text" id="claimText">"The claim..."</span>
+        </div>
+        <p class="lora-message" id="loraMessage">
+          Lora did a quick search and determined...
+        </p>
+      </div>
+
+      <div class="result-card">
+        <div class="sources-title">Sources</div>
+        <div class="sources-list" id="sourcesList">
+          <!-- Sources will be inserted here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <span>Powered by multi-AI consensus</span>
+      <div class="models">
+        <span>OpenAI</span>
+        <span>Claude</span>
+        <span>Gemini</span>
+        <span>Perplexity</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = window.location.origin;
+    let currentImageBase64 = null;
+
+    async function checkClaim() {
+      const claim = document.getElementById('claimInput').value.trim();
+      if (!claim) {
+        alert('Please enter a claim to check');
+        return;
+      }
+
+      showLoading();
+
+      try {
+        const response = await fetch(`${API_URL}/api/check`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: claim })
+        });
+
+        const data = await response.json();
+        
+        if (data.success) {
+          showResult(data);
+        } else {
+          alert('Error: ' + (data.error?.message || 'Unknown error'));
+          hideLoading();
+        }
+      } catch (error) {
+        alert('Failed to connect to server: ' + error.message);
+        hideLoading();
+      }
+    }
+
+    async function checkImage() {
+      if (!currentImageBase64) {
+        alert('Please upload an image first');
+        return;
+      }
+
+      showLoading();
+
+      try {
+        const response = await fetch(`${API_URL}/api/check-image`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64: currentImageBase64 })
+        });
+
+        const data = await response.json();
+        
+        if (data.success) {
+          showResult(data);
+        } else {
+          alert('Error: ' + (data.error?.message || 'Unknown error'));
+          hideLoading();
+        }
+      } catch (error) {
+        alert('Failed to connect to server: ' + error.message);
+        hideLoading();
+      }
+    }
+
+    function handleImageUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        currentImageBase64 = e.target.result.split(',')[1];
+        
+        const preview = document.getElementById('imagePreview');
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+        
+        document.getElementById('uploadArea').classList.add('has-image');
+        document.getElementById('imageButtons').style.display = 'flex';
+        document.querySelector('.upload-icon').style.display = 'none';
+        document.querySelector('.upload-text').style.display = 'none';
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearImage() {
+      currentImageBase64 = null;
+      document.getElementById('imagePreview').style.display = 'none';
+      document.getElementById('fileInput').value = '';
+      document.getElementById('uploadArea').classList.remove('has-image');
+      document.getElementById('imageButtons').style.display = 'none';
+      document.querySelector('.upload-icon').style.display = 'block';
+      document.querySelector('.upload-text').style.display = 'block';
+    }
+
+    function showResult(data) {
+      hideLoading();
+
+      const verdict = data.loraVerdict || 'UNKNOWN';
+      const badge = document.getElementById('verdictBadge');
+      badge.textContent = verdict;
+      badge.className = 'verdict-badge ' + verdict.toLowerCase();
+
+      document.getElementById('claimText').textContent = `"${data.claim}"`;
+      document.getElementById('loraMessage').textContent = data.loraMessage;
+
+      // Render sources
+      const sourcesList = document.getElementById('sourcesList');
+      sourcesList.innerHTML = '';
+      
+      if (data.sources && data.sources.length > 0) {
+        data.sources.forEach(source => {
+          const link = document.createElement('a');
+          link.className = 'source-link';
+          link.href = source.url;
+          link.target = '_blank';
+          link.innerHTML = `<span class="source-icon">🔗</span> ${source.title}`;
+          sourcesList.appendChild(link);
+        });
+      }
+
+      document.getElementById('resultSection').classList.add('visible');
+    }
+
+    function showLoading() {
+      document.getElementById('loading').classList.add('visible');
+      document.getElementById('resultSection').classList.remove('visible');
+      document.getElementById('checkBtn').disabled = true;
+    }
+
+    function hideLoading() {
+      document.getElementById('loading').classList.remove('visible');
+      document.getElementById('checkBtn').disabled = false;
+    }
+
+    function clearAll() {
+      document.getElementById('claimInput').value = '';
+      document.getElementById('resultSection').classList.remove('visible');
+      clearImage();
+    }
+
+    // Allow Enter key to submit
+    document.getElementById('claimInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        checkClaim();
+      }
+    });
+  </script>
+</body>
+</html>
+
