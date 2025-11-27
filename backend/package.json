@@ -1,0 +1,19 @@
+{
+  "name": "lora-backend",
+  "version": "1.0.0",
+  "description": "Multi-AI fact-checking backend for Lora",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@google/generative-ai": "^0.21.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "openai": "^4.73.0"
+  }
+}
+
