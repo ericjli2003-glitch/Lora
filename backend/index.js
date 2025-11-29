@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
 import { checkWithOpenAI } from './services/openai.js';
 import { checkWithAnthropic } from './services/anthropic.js';
 import { checkWithGoogle } from './services/google.js';
@@ -15,6 +16,7 @@ import { analyzeComments } from './services/analyzeComments.js';
 import { interpretScreenshot } from './services/interpretScreenshot.js';
 import { personalInterpretation } from './services/personalInterpretation.js';
 import { detectIntent, needsFactCheck, isPersonal } from './services/intentDetector.js';
+import { extractArticleText, extractClaims } from './services/urlFactCheck.js';
 
 dotenv.config();
 
@@ -26,6 +28,28 @@ const __dirname = path.dirname(__filename);
 
 // Increase payload limit for video uploads (50MB)
 app.use(express.json({ limit: '50mb' }));
+
+// Rate limiting - protect API from abuse
+const limiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 30, // 30 requests per minute
+  message: {
+    success: false,
+    error: {
+      message: 'whoa slow down! too many requests, try again in a minute',
+      retryAfter: '1 minute'
+    }
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiting to API routes
+app.use('/api', limiter);
+app.use('/analyze', limiter);
+app.use('/interpret', limiter);
+app.use('/detect-ai', limiter);
+app.use('/analyze-comments', limiter);
 
 // Serve static files (web UI)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -292,6 +316,102 @@ app.post('/api/check-image', async (req, res) => {
     console.error('Image analysis error:', error);
     res.status(500).json(errorResponse(
       'couldn\'t read that image for some reason, try again?',
+      { error: error.message }
+    ));
+  }
+});
+
+// =============================================================================
+// POST /api/check-url - Fact-check a news article URL
+// =============================================================================
+
+app.post('/api/check-url', async (req, res) => {
+  const { url } = req.body;
+
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json(errorResponse(
+      'send me a URL and I\'ll check if the article is legit',
+      { received: { hasUrl: !!url } }
+    ));
+  }
+
+  console.log(`\n🔗 Checking URL: ${url.substring(0, 50)}...`);
+
+  try {
+    // Step 1: Extract article content
+    console.log(`   Extracting article content...`);
+    const article = await extractArticleText(url);
+    console.log(`   Title: "${article.title}"`);
+    console.log(`   Claims found: ${article.claims?.length || 0}`);
+
+    if (!article.claims || article.claims.length === 0) {
+      return res.json({
+        success: true,
+        url: url,
+        title: article.title,
+        loraVerdict: 'UNKNOWN',
+        loraMessage: "couldn't find any specific claims to fact-check in this article",
+        claims: []
+      });
+    }
+
+    // Step 2: Fact-check the main claim
+    const mainClaim = article.claims[0];
+    console.log(`   Main claim: "${mainClaim.substring(0, 50)}..."`);
+
+    const results = await Promise.allSettled([
+      checkWithOpenAI(mainClaim),
+      checkWithAnthropic(mainClaim),
+      checkWithGoogle(mainClaim),
+      checkWithPerplexity(mainClaim)
+    ]);
+
+    const responses = [];
+    const models = ['OpenAI', 'Anthropic', 'Google', 'Perplexity'];
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value) {
+        responses.push({ model: models[index], ...result.value });
+        console.log(`   ✅ ${models[index]}: ${result.value.verdict}`);
+      } else {
+        console.log(`   ❌ ${models[index]}: Failed`);
+      }
+    });
+
+    let loraVerdict = 'UNKNOWN';
+    let loraMessage = "couldn't verify the claims in this article";
+
+    if (responses.length > 0) {
+      const consensus = aggregateVerdicts(responses);
+      
+      if (consensus.verdict === 'false') {
+        loraVerdict = 'FALSE';
+        loraMessage = "checked this article and there's some stuff in here that's not true";
+      } else if (consensus.verdict === 'true') {
+        loraVerdict = 'TRUE';
+        loraMessage = "this article checks out, the main claims seem legit";
+      } else {
+        loraMessage = "mixed results on this one, some claims are hard to verify";
+      }
+    }
+
+    console.log(`\n🎯 Lora Verdict: ${loraVerdict}`);
+
+    res.json({
+      success: true,
+      url: url,
+      title: article.title,
+      mainClaim: mainClaim,
+      loraVerdict: loraVerdict,
+      loraMessage: loraMessage,
+      allClaims: article.claims,
+      sources: getSources(loraVerdict, mainClaim)
+    });
+
+  } catch (error) {
+    console.error('URL check error:', error);
+    res.status(500).json(errorResponse(
+      'couldn\'t check that URL, maybe try a different link?',
       { error: error.message }
     ));
   }
@@ -1090,6 +1210,7 @@ app.listen(PORT, () => {
   console.log(`\n📡 API Endpoints:`);
   console.log(`   POST /api/check            - Fact-check text (multi-AI consensus)`);
   console.log(`   POST /api/check-image      - Fact-check image/screenshot (Gemini + multi-AI)`);
+  console.log(`   POST /api/check-url        - Fact-check news article URL`);
   console.log(`   POST /api/check-video      - Fact-check video (Gemini vision)`);
   console.log(`   POST /api/check-transcript - Fact-check video via transcript (multi-AI)`);
   console.log(`   POST /api/detect-ai-image  - Detect if image is AI-generated`);

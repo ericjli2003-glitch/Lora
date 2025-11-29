@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lora - AI Fact Checker</title>
+  <title>Lora - Your AI Companion</title>
   <style>
     * {
       margin: 0;
@@ -20,22 +20,22 @@
     }
 
     .container {
-      max-width: 600px;
+      max-width: 700px;
       margin: 0 auto;
     }
 
     /* Header */
     .header {
       text-align: center;
-      margin-bottom: 40px;
+      margin-bottom: 32px;
     }
 
     .logo {
-      width: 80px;
-      height: 80px;
+      width: 70px;
+      height: 70px;
       background: radial-gradient(circle at 30% 30%, #6b8cff, #8b5cf6, #4c1d95);
       border-radius: 50%;
-      margin: 0 auto 20px;
+      margin: 0 auto 16px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -43,24 +43,54 @@
     }
 
     .logo svg {
-      width: 40px;
-      height: 40px;
+      width: 35px;
+      height: 35px;
       fill: white;
     }
 
     h1 {
-      font-size: 42px;
+      font-size: 36px;
       font-weight: 700;
       background: linear-gradient(to bottom, #fff, #c4c9ff);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
 
     .subtitle {
       color: rgba(255, 255, 255, 0.5);
-      font-size: 16px;
-      font-weight: 500;
+      font-size: 14px;
+    }
+
+    /* Mode Tabs */
+    .mode-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .mode-tab {
+      padding: 10px 16px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.05);
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .mode-tab:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+    }
+
+    .mode-tab.active {
+      background: linear-gradient(135deg, #6b8cff, #8b5cf6);
+      color: white;
+      border-color: transparent;
     }
 
     /* Input Section */
@@ -68,53 +98,56 @@
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 20px;
-      padding: 24px;
-      margin-bottom: 24px;
+      padding: 20px;
+      margin-bottom: 20px;
     }
 
     .input-label {
-      font-size: 13px;
-      color: rgba(255, 255, 255, 0.6);
-      margin-bottom: 12px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-bottom: 10px;
       display: block;
       font-weight: 500;
     }
 
-    textarea {
+    textarea, input[type="text"] {
       width: 100%;
       background: rgba(0, 0, 0, 0.3);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 12px;
-      padding: 16px;
+      padding: 14px;
       color: #fff;
-      font-size: 16px;
-      resize: none;
-      height: 120px;
+      font-size: 15px;
       font-family: inherit;
       transition: border-color 0.2s;
     }
 
-    textarea:focus {
+    textarea {
+      resize: none;
+      height: 100px;
+    }
+
+    textarea:focus, input:focus {
       outline: none;
       border-color: rgba(139, 92, 246, 0.5);
     }
 
-    textarea::placeholder {
+    textarea::placeholder, input::placeholder {
       color: rgba(255, 255, 255, 0.3);
     }
 
     /* Buttons */
     .button-row {
       display: flex;
-      gap: 12px;
-      margin-top: 16px;
+      gap: 10px;
+      margin-top: 14px;
     }
 
     button {
       flex: 1;
-      padding: 14px 24px;
+      padding: 12px 20px;
       border-radius: 12px;
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
@@ -149,19 +182,14 @@
     }
 
     /* Image Upload */
-    .image-upload {
-      margin-top: 16px;
-      padding-top: 16px;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
     .upload-area {
       border: 2px dashed rgba(255, 255, 255, 0.2);
       border-radius: 12px;
-      padding: 24px;
+      padding: 20px;
       text-align: center;
       cursor: pointer;
       transition: all 0.2s;
+      margin-top: 12px;
     }
 
     .upload-area:hover {
@@ -173,37 +201,26 @@
       border-color: rgba(139, 92, 246, 0.5);
     }
 
-    .upload-icon {
-      font-size: 32px;
-      margin-bottom: 8px;
-    }
-
-    .upload-text {
-      color: rgba(255, 255, 255, 0.5);
-      font-size: 14px;
-    }
+    .upload-icon { font-size: 28px; margin-bottom: 6px; }
+    .upload-text { color: rgba(255, 255, 255, 0.5); font-size: 13px; }
 
     #imagePreview {
       max-width: 100%;
-      max-height: 200px;
+      max-height: 150px;
       border-radius: 8px;
-      margin-top: 12px;
+      margin-top: 10px;
       display: none;
     }
 
-    #fileInput {
-      display: none;
-    }
+    #fileInput { display: none; }
 
     /* Result Section */
     .result-section {
       display: none;
-    }
-
-    .result-section.visible {
-      display: block;
       animation: fadeIn 0.3s ease;
     }
+
+    .result-section.visible { display: block; }
 
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(10px); }
@@ -213,23 +230,31 @@
     .result-card {
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 20px;
-      padding: 24px;
-      margin-bottom: 16px;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 14px;
     }
 
-    .verdict {
+    .result-type {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .verdict-row {
       display: flex;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 16px;
+      gap: 12px;
+      margin-bottom: 12px;
     }
 
     .verdict-badge {
-      padding: 8px 20px;
+      padding: 6px 14px;
       border-radius: 100px;
       font-weight: 700;
-      font-size: 14px;
+      font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 1px;
     }
@@ -246,51 +271,74 @@
       border: 1px solid rgba(34, 197, 94, 0.3);
     }
 
-    .verdict-badge.unknown {
+    .verdict-badge.unknown, .verdict-badge.personal {
+      background: rgba(139, 92, 246, 0.2);
+      color: #a78bfa;
+      border: 1px solid rgba(139, 92, 246, 0.3);
+    }
+
+    .verdict-badge.ai {
       background: rgba(234, 179, 8, 0.2);
       color: #fbbf24;
       border: 1px solid rgba(234, 179, 8, 0.3);
     }
 
-    .claim-text {
-      font-size: 14px;
-      color: rgba(255, 255, 255, 0.6);
-      font-style: italic;
+    .verdict-badge.real {
+      background: rgba(34, 197, 94, 0.2);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.3);
     }
 
     .lora-message {
-      font-size: 18px;
+      font-size: 16px;
       line-height: 1.6;
       color: rgba(255, 255, 255, 0.9);
     }
 
+    .interpretation-details {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .detail-row {
+      display: flex;
+      margin-bottom: 10px;
+    }
+
+    .detail-label {
+      width: 100px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.4);
+      text-transform: uppercase;
+    }
+
+    .detail-value {
+      flex: 1;
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.8);
+    }
+
     /* Sources */
     .sources-title {
-      font-size: 13px;
-      color: rgba(255, 255, 255, 0.5);
-      margin-bottom: 12px;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+      margin-bottom: 10px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 1px;
     }
 
-    .sources-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
     .source-link {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 12px 16px;
+      display: block;
+      padding: 10px 14px;
       background: rgba(0, 0, 0, 0.2);
-      border-radius: 10px;
+      border-radius: 8px;
       color: #8b9fff;
       text-decoration: none;
-      font-size: 14px;
+      font-size: 13px;
       transition: all 0.2s;
+      margin-bottom: 6px;
     }
 
     .source-link:hover {
@@ -298,62 +346,43 @@
       color: #a5b4ff;
     }
 
-    .source-icon {
-      font-size: 16px;
-    }
-
     /* Loading */
     .loading {
       display: none;
       text-align: center;
-      padding: 40px;
+      padding: 30px;
     }
 
-    .loading.visible {
-      display: block;
-    }
+    .loading.visible { display: block; }
 
     .spinner {
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
       border: 3px solid rgba(139, 92, 246, 0.2);
       border-top-color: #8b5cf6;
       border-radius: 50%;
       animation: spin 1s linear infinite;
-      margin: 0 auto 16px;
+      margin: 0 auto 12px;
     }
 
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     .loading-text {
-      color: rgba(255, 255, 255, 0.6);
-      font-size: 14px;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 13px;
     }
 
     /* Footer */
     .footer {
       text-align: center;
-      margin-top: 40px;
+      margin-top: 32px;
       color: rgba(255, 255, 255, 0.3);
-      font-size: 13px;
+      font-size: 12px;
     }
 
-    .footer span {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .models {
-      display: flex;
-      justify-content: center;
-      gap: 16px;
-      margin-top: 8px;
-      font-family: 'SF Mono', monospace;
-      font-size: 11px;
-    }
+    /* Hide sections by default */
+    .mode-content { display: none; }
+    .mode-content.active { display: block; }
   </style>
 </head>
 <body>
@@ -361,43 +390,100 @@
     <!-- Header -->
     <div class="header">
       <div class="logo">
-        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
-        </svg>
+        <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
       </div>
       <h1>Lora</h1>
-      <p class="subtitle">AI-Powered Fact Checker</p>
+      <p class="subtitle">your AI companion for understanding things</p>
     </div>
 
-    <!-- Input Section -->
-    <div class="input-section">
-      <label class="input-label">Enter a claim to fact-check</label>
-      <textarea id="claimInput" placeholder="e.g., The Great Wall of China is visible from space..."></textarea>
-      
-      <div class="button-row">
-        <button class="btn-primary" id="checkBtn" onclick="checkClaim()">
-          Check with Lora
-        </button>
-        <button class="btn-secondary" onclick="clearAll()">
-          Clear
-        </button>
-      </div>
+    <!-- Mode Tabs -->
+    <div class="mode-tabs">
+      <div class="mode-tab active" onclick="switchMode('smart')">🧠 Smart Analyze</div>
+      <div class="mode-tab" onclick="switchMode('factcheck')">✓ Fact Check</div>
+      <div class="mode-tab" onclick="switchMode('interpret')">💬 Interpret</div>
+      <div class="mode-tab" onclick="switchMode('image')">📷 Image</div>
+      <div class="mode-tab" onclick="switchMode('url')">🔗 URL</div>
+      <div class="mode-tab" onclick="switchMode('aidetect')">🤖 AI Detect</div>
+    </div>
 
-      <div class="image-upload">
-        <label class="input-label">Or upload a screenshot</label>
+    <!-- Smart Analyze Mode -->
+    <div class="mode-content active" id="mode-smart">
+      <div class="input-section">
+        <label class="input-label">paste anything — I'll figure out what to do with it</label>
+        <textarea id="smartInput" placeholder="a claim to fact-check, a personal message, a screenshot text, whatever..."></textarea>
+        <div class="button-row">
+          <button class="btn-primary" onclick="smartAnalyze()">analyze</button>
+          <button class="btn-secondary" onclick="clearInput('smartInput')">clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Fact Check Mode -->
+    <div class="mode-content" id="mode-factcheck">
+      <div class="input-section">
+        <label class="input-label">enter a claim to fact-check</label>
+        <textarea id="factcheckInput" placeholder="e.g., The moon landing was faked..."></textarea>
+        <div class="button-row">
+          <button class="btn-primary" onclick="factCheck()">check it</button>
+          <button class="btn-secondary" onclick="clearInput('factcheckInput')">clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Interpret Mode -->
+    <div class="mode-content" id="mode-interpret">
+      <div class="input-section">
+        <label class="input-label">paste text you want me to interpret (screenshots, messages, etc)</label>
+        <textarea id="interpretInput" placeholder="paste the text from your screenshot..."></textarea>
+        <div class="button-row">
+          <button class="btn-primary" onclick="interpret()">interpret</button>
+          <button class="btn-secondary" onclick="clearInput('interpretInput')">clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Image Mode -->
+    <div class="mode-content" id="mode-image">
+      <div class="input-section">
+        <label class="input-label">upload an image to analyze</label>
         <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
           <div class="upload-icon">📷</div>
-          <div class="upload-text">Click to upload an image</div>
+          <div class="upload-text">click to upload</div>
           <img id="imagePreview" alt="Preview">
         </div>
         <input type="file" id="fileInput" accept="image/*" onchange="handleImageUpload(event)">
         <div class="button-row" id="imageButtons" style="display: none;">
-          <button class="btn-primary" onclick="checkImage()">
-            Check Image
-          </button>
-          <button class="btn-secondary" onclick="clearImage()">
-            Remove
-          </button>
+          <button class="btn-primary" onclick="checkImage()">check image</button>
+          <button class="btn-secondary" onclick="clearImage()">remove</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- URL Mode -->
+    <div class="mode-content" id="mode-url">
+      <div class="input-section">
+        <label class="input-label">paste a news article URL to fact-check</label>
+        <input type="text" id="urlInput" placeholder="https://...">
+        <div class="button-row">
+          <button class="btn-primary" onclick="checkURL()">check article</button>
+          <button class="btn-secondary" onclick="clearInput('urlInput')">clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Detect Mode -->
+    <div class="mode-content" id="mode-aidetect">
+      <div class="input-section">
+        <label class="input-label">upload an image to check if it's AI-generated</label>
+        <div class="upload-area" id="uploadAreaAI" onclick="document.getElementById('fileInputAI').click()">
+          <div class="upload-icon">🤖</div>
+          <div class="upload-text">click to upload</div>
+          <img id="imagePreviewAI" alt="Preview">
+        </div>
+        <input type="file" id="fileInputAI" accept="image/*" onchange="handleAIImageUpload(event)">
+        <div class="button-row" id="aiImageButtons" style="display: none;">
+          <button class="btn-primary" onclick="detectAI()">is it AI?</button>
+          <button class="btn-secondary" onclick="clearAIImage()">remove</button>
         </div>
       </div>
     </div>
@@ -405,120 +491,238 @@
     <!-- Loading -->
     <div class="loading" id="loading">
       <div class="spinner"></div>
-      <div class="loading-text">Lora is analyzing with multiple AI models...</div>
+      <div class="loading-text">thinking...</div>
     </div>
 
     <!-- Result Section -->
     <div class="result-section" id="resultSection">
-      <div class="result-card">
-        <div class="verdict">
-          <span class="verdict-badge" id="verdictBadge">FALSE</span>
-          <span class="claim-text" id="claimText">"The claim..."</span>
+      <div class="result-card" id="mainResult">
+        <div class="result-type" id="resultType">result</div>
+        <div class="verdict-row" id="verdictRow">
+          <span class="verdict-badge" id="verdictBadge">TRUE</span>
         </div>
-        <p class="lora-message" id="loraMessage">
-          Lora did a quick search and determined...
-        </p>
+        <p class="lora-message" id="loraMessage"></p>
+        <div class="interpretation-details" id="interpretationDetails" style="display: none;"></div>
       </div>
-
-      <div class="result-card">
-        <div class="sources-title">Sources</div>
-        <div class="sources-list" id="sourcesList">
-          <!-- Sources will be inserted here -->
-        </div>
+      <div class="result-card" id="sourcesCard" style="display: none;">
+        <div class="sources-title">sources</div>
+        <div id="sourcesList"></div>
       </div>
     </div>
 
     <!-- Footer -->
     <div class="footer">
-      <span>Powered by multi-AI consensus</span>
-      <div class="models">
-        <span>OpenAI</span>
-        <span>Claude</span>
-        <span>Gemini</span>
-        <span>Perplexity</span>
-      </div>
+      powered by OpenAI • Claude • Gemini • Perplexity
     </div>
   </div>
 
   <script>
     const API_URL = window.location.origin;
     let currentImageBase64 = null;
+    let currentAIImageBase64 = null;
 
-    async function checkClaim() {
-      const claim = document.getElementById('claimInput').value.trim();
-      if (!claim) {
-        alert('Please enter a claim to check');
-        return;
+    function switchMode(mode) {
+      document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.mode-content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('mode-' + mode).classList.add('active');
+      hideResult();
+    }
+
+    function showLoading() {
+      document.getElementById('loading').classList.add('visible');
+      document.getElementById('resultSection').classList.remove('visible');
+    }
+
+    function hideLoading() {
+      document.getElementById('loading').classList.remove('visible');
+    }
+
+    function hideResult() {
+      document.getElementById('resultSection').classList.remove('visible');
+    }
+
+    function clearInput(id) {
+      document.getElementById(id).value = '';
+      hideResult();
+    }
+
+    function showResult(data, type = 'result') {
+      hideLoading();
+      
+      document.getElementById('resultType').textContent = type;
+      
+      const verdictRow = document.getElementById('verdictRow');
+      const badge = document.getElementById('verdictBadge');
+      const details = document.getElementById('interpretationDetails');
+      const sourcesCard = document.getElementById('sourcesCard');
+      
+      // Handle different result types
+      if (data.loraVerdict) {
+        badge.textContent = data.loraVerdict;
+        badge.className = 'verdict-badge ' + data.loraVerdict.toLowerCase();
+        verdictRow.style.display = 'flex';
+      } else if (data.result === 'AI' || data.result === 'REAL') {
+        badge.textContent = data.result;
+        badge.className = 'verdict-badge ' + data.result.toLowerCase();
+        verdictRow.style.display = 'flex';
+      } else if (data.type === 'personal') {
+        badge.textContent = 'PERSONAL';
+        badge.className = 'verdict-badge personal';
+        verdictRow.style.display = 'flex';
+      } else {
+        verdictRow.style.display = 'none';
       }
 
-      showLoading();
+      // Message
+      const message = data.message || data.loraMessage || data.interpretation?.reaction || '';
+      document.getElementById('loraMessage').textContent = message;
 
+      // Interpretation details
+      if (data.interpretation) {
+        const interp = data.interpretation;
+        let detailsHTML = '';
+        
+        if (interp.vibe) detailsHTML += `<div class="detail-row"><span class="detail-label">vibe</span><span class="detail-value">${interp.vibe}</span></div>`;
+        if (interp.emotion) detailsHTML += `<div class="detail-row"><span class="detail-label">emotion</span><span class="detail-value">${interp.emotion}</span></div>`;
+        if (interp.tone) detailsHTML += `<div class="detail-row"><span class="detail-label">tone</span><span class="detail-value">${interp.tone}</span></div>`;
+        if (interp.subtext) detailsHTML += `<div class="detail-row"><span class="detail-label">subtext</span><span class="detail-value">${interp.subtext}</span></div>`;
+        if (interp.suggestedReply) detailsHTML += `<div class="detail-row"><span class="detail-label">reply</span><span class="detail-value">${interp.suggestedReply}</span></div>`;
+        if (interp.summary) detailsHTML += `<div class="detail-row"><span class="detail-label">tldr</span><span class="detail-value">${interp.summary}</span></div>`;
+        
+        if (detailsHTML) {
+          details.innerHTML = detailsHTML;
+          details.style.display = 'block';
+        } else {
+          details.style.display = 'none';
+        }
+      } else {
+        details.style.display = 'none';
+      }
+
+      // Sources
+      if (data.sources && data.sources.length > 0) {
+        const sourcesList = document.getElementById('sourcesList');
+        sourcesList.innerHTML = data.sources.map(s => 
+          `<a class="source-link" href="${s.url}" target="_blank">🔗 ${s.title}</a>`
+        ).join('');
+        sourcesCard.style.display = 'block';
+      } else {
+        sourcesCard.style.display = 'none';
+      }
+
+      document.getElementById('resultSection').classList.add('visible');
+    }
+
+    async function smartAnalyze() {
+      const input = document.getElementById('smartInput').value.trim();
+      if (!input) return alert('enter something first!');
+      
+      showLoading();
       try {
-        const response = await fetch(`${API_URL}/api/check`, {
+        const res = await fetch(`${API_URL}/analyze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: claim })
+          body: JSON.stringify({ input })
         });
-
-        const data = await response.json();
-        
+        const data = await res.json();
         if (data.success) {
-          showResult(data);
+          showResult(data, data.type || 'analysis');
         } else {
-          alert('Error: ' + (data.error?.message || 'Unknown error'));
+          alert(data.error?.message || 'something went wrong');
           hideLoading();
         }
-      } catch (error) {
-        alert('Failed to connect to server: ' + error.message);
+      } catch (e) {
+        alert('failed to connect: ' + e.message);
         hideLoading();
       }
     }
 
-    async function checkImage() {
-      if (!currentImageBase64) {
-        alert('Please upload an image first');
-        return;
-      }
-
+    async function factCheck() {
+      const text = document.getElementById('factcheckInput').value.trim();
+      if (!text) return alert('enter a claim first!');
+      
       showLoading();
-
       try {
-        const response = await fetch(`${API_URL}/api/check-image`, {
+        const res = await fetch(`${API_URL}/api/check`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64: currentImageBase64 })
+          body: JSON.stringify({ text })
         });
-
-        const data = await response.json();
-        
+        const data = await res.json();
         if (data.success) {
-          showResult(data);
+          showResult(data, 'fact check');
         } else {
-          alert('Error: ' + (data.error?.message || 'Unknown error'));
+          alert(data.error?.message || 'something went wrong');
           hideLoading();
         }
-      } catch (error) {
-        alert('Failed to connect to server: ' + error.message);
+      } catch (e) {
+        alert('failed to connect: ' + e.message);
         hideLoading();
       }
     }
 
+    async function interpret() {
+      const text = document.getElementById('interpretInput').value.trim();
+      if (!text) return alert('paste some text first!');
+      
+      showLoading();
+      try {
+        const res = await fetch(`${API_URL}/interpret`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showResult(data, data.type || 'interpretation');
+        } else {
+          alert(data.error?.message || 'something went wrong');
+          hideLoading();
+        }
+      } catch (e) {
+        alert('failed to connect: ' + e.message);
+        hideLoading();
+      }
+    }
+
+    async function checkURL() {
+      const url = document.getElementById('urlInput').value.trim();
+      if (!url) return alert('paste a URL first!');
+      
+      showLoading();
+      try {
+        const res = await fetch(`${API_URL}/api/check-url`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showResult(data, 'url check');
+        } else {
+          alert(data.error?.message || 'something went wrong');
+          hideLoading();
+        }
+      } catch (e) {
+        alert('failed to connect: ' + e.message);
+        hideLoading();
+      }
+    }
+
+    // Image handling
     function handleImageUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
-
       const reader = new FileReader();
       reader.onload = function(e) {
         currentImageBase64 = e.target.result.split(',')[1];
-        
-        const preview = document.getElementById('imagePreview');
-        preview.src = e.target.result;
-        preview.style.display = 'block';
-        
+        document.getElementById('imagePreview').src = e.target.result;
+        document.getElementById('imagePreview').style.display = 'block';
         document.getElementById('uploadArea').classList.add('has-image');
         document.getElementById('imageButtons').style.display = 'flex';
-        document.querySelector('.upload-icon').style.display = 'none';
-        document.querySelector('.upload-text').style.display = 'none';
+        document.querySelector('#uploadArea .upload-icon').style.display = 'none';
+        document.querySelector('#uploadArea .upload-text').style.display = 'none';
       };
       reader.readAsDataURL(file);
     }
@@ -529,64 +733,82 @@
       document.getElementById('fileInput').value = '';
       document.getElementById('uploadArea').classList.remove('has-image');
       document.getElementById('imageButtons').style.display = 'none';
-      document.querySelector('.upload-icon').style.display = 'block';
-      document.querySelector('.upload-text').style.display = 'block';
+      document.querySelector('#uploadArea .upload-icon').style.display = 'block';
+      document.querySelector('#uploadArea .upload-text').style.display = 'block';
     }
 
-    function showResult(data) {
-      hideLoading();
-
-      const verdict = data.loraVerdict || 'UNKNOWN';
-      const badge = document.getElementById('verdictBadge');
-      badge.textContent = verdict;
-      badge.className = 'verdict-badge ' + verdict.toLowerCase();
-
-      document.getElementById('claimText').textContent = `"${data.claim}"`;
-      document.getElementById('loraMessage').textContent = data.loraMessage;
-
-      // Render sources
-      const sourcesList = document.getElementById('sourcesList');
-      sourcesList.innerHTML = '';
+    async function checkImage() {
+      if (!currentImageBase64) return alert('upload an image first!');
       
-      if (data.sources && data.sources.length > 0) {
-        data.sources.forEach(source => {
-          const link = document.createElement('a');
-          link.className = 'source-link';
-          link.href = source.url;
-          link.target = '_blank';
-          link.innerHTML = `<span class="source-icon">🔗</span> ${source.title}`;
-          sourcesList.appendChild(link);
+      showLoading();
+      try {
+        const res = await fetch(`${API_URL}/api/check-image`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64: currentImageBase64 })
         });
+        const data = await res.json();
+        if (data.success) {
+          showResult(data, 'image check');
+        } else {
+          alert(data.error?.message || 'something went wrong');
+          hideLoading();
+        }
+      } catch (e) {
+        alert('failed to connect: ' + e.message);
+        hideLoading();
       }
-
-      document.getElementById('resultSection').classList.add('visible');
     }
 
-    function showLoading() {
-      document.getElementById('loading').classList.add('visible');
-      document.getElementById('resultSection').classList.remove('visible');
-      document.getElementById('checkBtn').disabled = true;
+    // AI Image detection
+    function handleAIImageUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        currentAIImageBase64 = e.target.result.split(',')[1];
+        document.getElementById('imagePreviewAI').src = e.target.result;
+        document.getElementById('imagePreviewAI').style.display = 'block';
+        document.getElementById('uploadAreaAI').classList.add('has-image');
+        document.getElementById('aiImageButtons').style.display = 'flex';
+        document.querySelector('#uploadAreaAI .upload-icon').style.display = 'none';
+        document.querySelector('#uploadAreaAI .upload-text').style.display = 'none';
+      };
+      reader.readAsDataURL(file);
     }
 
-    function hideLoading() {
-      document.getElementById('loading').classList.remove('visible');
-      document.getElementById('checkBtn').disabled = false;
+    function clearAIImage() {
+      currentAIImageBase64 = null;
+      document.getElementById('imagePreviewAI').style.display = 'none';
+      document.getElementById('fileInputAI').value = '';
+      document.getElementById('uploadAreaAI').classList.remove('has-image');
+      document.getElementById('aiImageButtons').style.display = 'none';
+      document.querySelector('#uploadAreaAI .upload-icon').style.display = 'block';
+      document.querySelector('#uploadAreaAI .upload-text').style.display = 'block';
     }
 
-    function clearAll() {
-      document.getElementById('claimInput').value = '';
-      document.getElementById('resultSection').classList.remove('visible');
-      clearImage();
-    }
-
-    // Allow Enter key to submit
-    document.getElementById('claimInput').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        checkClaim();
+    async function detectAI() {
+      if (!currentAIImageBase64) return alert('upload an image first!');
+      
+      showLoading();
+      try {
+        const res = await fetch(`${API_URL}/api/detect-ai-image`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64: currentAIImageBase64 })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showResult(data, 'ai detection');
+        } else {
+          alert(data.error?.message || 'something went wrong');
+          hideLoading();
+        }
+      } catch (e) {
+        alert('failed to connect: ' + e.message);
+        hideLoading();
       }
-    });
+    }
   </script>
 </body>
 </html>
-
