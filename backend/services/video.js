@@ -146,17 +146,17 @@ export async function checkVideoFromBase64(base64Data, mimeType = 'video/mp4') {
  */
 export function generateSpokenResponse(analysis) {
   const { overallVerdict, confidence, summary, claims } = analysis;
+  const claimCount = claims?.length || 0;
   
-  const verdictPhrases = {
-    true: 'appears to be accurate',
-    false: 'appears to contain false information',
-    partially_true: 'contains a mix of accurate and inaccurate information',
-    unverifiable: 'contains claims that cannot be verified'
+  const verdictResponses = {
+    true: `watched it and yeah it's legit, ${confidence}% confident`,
+    false: `so I watched this and there's some bs in here, ${confidence}% sure it's not accurate`,
+    partially_true: `eh it's a mix — some of it's true, some not so much (${confidence}% confidence)`,
+    unverifiable: `couldn't fully verify everything in this video tbh`
   };
 
-  const verdictPhrase = verdictPhrases[overallVerdict] || 'has unclear accuracy';
-  const claimCount = claims?.length || 0;
-
-  return `This video ${verdictPhrase} with ${confidence}% confidence. I found ${claimCount} claim${claimCount !== 1 ? 's' : ''} to analyze. ${summary}`;
+  const baseResponse = verdictResponses[overallVerdict] || `watched it but honestly not sure what to make of it`;
+  
+  return `${baseResponse}. found ${claimCount} claim${claimCount !== 1 ? 's' : ''} to look at. ${summary}`;
 }
 

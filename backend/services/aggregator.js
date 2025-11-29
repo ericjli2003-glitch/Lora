@@ -8,7 +8,7 @@ export function aggregateVerdicts(responses) {
       verdict: 'error',
       confidence: 0,
       summary: 'No AI models responded.',
-      spokenResponse: 'I could not verify this claim. Please try again.'
+      spokenResponse: 'couldn\'t reach my sources rn, try again in a sec'
     };
   }
 
@@ -91,26 +91,26 @@ function generateSummary(verdict, confidence, modelCount, explanations) {
 function generateSpokenResponse(verdict, confidence, explanation) {
   const responses = {
     true: [
-      `This appears to be true with ${confidence}% confidence.`,
-      explanation ? ` ${explanation}` : ''
+      `yeah this checks out, I'm ${confidence}% sure it's true`,
+      explanation ? ` — ${explanation}` : ''
     ].join(''),
     
     false: [
-      `This appears to be false with ${confidence}% confidence.`,
-      explanation ? ` ${explanation}` : ''
+      `nah this isn't right, ${confidence}% sure it's false`,
+      explanation ? ` — ${explanation}` : ''
     ].join(''),
     
     partially_true: [
-      `This is partially true with ${confidence}% confidence.`,
-      explanation ? ` ${explanation}` : ' The claim contains some accurate elements but may be misleading.'
+      `kinda true kinda not? like ${confidence}% confidence here`,
+      explanation ? ` — ${explanation}` : ' some parts check out but not all of it'
     ].join(''),
     
     unverifiable: [
-      `I cannot verify this claim with certainty.`,
-      explanation ? ` ${explanation}` : ' More information may be needed.'
+      `can't really verify this one tbh`,
+      explanation ? ` — ${explanation}` : ' might wanna look into it more yourself'
     ].join('')
   };
 
-  return responses[verdict] || 'Unable to determine the accuracy of this claim.';
+  return responses[verdict] || 'not sure about this one honestly';
 }
 

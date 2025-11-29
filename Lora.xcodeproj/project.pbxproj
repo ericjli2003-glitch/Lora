@@ -6,8 +6,37 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A7F905992ED81E46005ED7CD /* LoraIntents.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = A7F905902ED81E46005ED7CD /* LoraIntents.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A7F905972ED81E46005ED7CD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A7F9056C2ED81DA2005ED7CD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A7F9058F2ED81E46005ED7CD;
+			remoteInfo = LoraIntents;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A7F9059E2ED81E46005ED7CD /* Embed ExtensionKit Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				A7F905992ED81E46005ED7CD /* LoraIntents.appex in Embed ExtensionKit Extensions */,
+			);
+			name = "Embed ExtensionKit Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		A7F905742ED81DA2005ED7CD /* Lora.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Lora.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A7F905902ED81E46005ED7CD /* LoraIntents.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = LoraIntents.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -29,10 +58,22 @@
 			path = Lora;
 			sourceTree = "<group>";
 		};
+		A7F905912ED81E46005ED7CD /* LoraIntents */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LoraIntents;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A7F905712ED81DA2005ED7CD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7F9058D2ED81E46005ED7CD /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -46,6 +87,7 @@
 			isa = PBXGroup;
 			children = (
 				A7F905762ED81DA2005ED7CD /* Lora */,
+				A7F905912ED81E46005ED7CD /* LoraIntents */,
 				A7F905752ED81DA2005ED7CD /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +96,7 @@
 			isa = PBXGroup;
 			children = (
 				A7F905742ED81DA2005ED7CD /* Lora.app */,
+				A7F905902ED81E46005ED7CD /* LoraIntents.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -68,10 +111,12 @@
 				A7F905702ED81DA2005ED7CD /* Sources */,
 				A7F905712ED81DA2005ED7CD /* Frameworks */,
 				A7F905722ED81DA2005ED7CD /* Resources */,
+				A7F9059E2ED81E46005ED7CD /* Embed ExtensionKit Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A7F905982ED81E46005ED7CD /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A7F905762ED81DA2005ED7CD /* Lora */,
@@ -82,6 +127,28 @@
 			productName = Lora;
 			productReference = A7F905742ED81DA2005ED7CD /* Lora.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A7F9058F2ED81E46005ED7CD /* LoraIntents */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A7F9059A2ED81E46005ED7CD /* Build configuration list for PBXNativeTarget "LoraIntents" */;
+			buildPhases = (
+				A7F9058C2ED81E46005ED7CD /* Sources */,
+				A7F9058D2ED81E46005ED7CD /* Frameworks */,
+				A7F9058E2ED81E46005ED7CD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A7F905912ED81E46005ED7CD /* LoraIntents */,
+			);
+			name = LoraIntents;
+			packageProductDependencies = (
+			);
+			productName = LoraIntents;
+			productReference = A7F905902ED81E46005ED7CD /* LoraIntents.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -94,6 +161,9 @@
 				LastUpgradeCheck = 2610;
 				TargetAttributes = {
 					A7F905732ED81DA2005ED7CD = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+					A7F9058F2ED81E46005ED7CD = {
 						CreatedOnToolsVersion = 26.1.1;
 					};
 				};
@@ -113,12 +183,20 @@
 			projectRoot = "";
 			targets = (
 				A7F905732ED81DA2005ED7CD /* Lora */,
+				A7F9058F2ED81E46005ED7CD /* LoraIntents */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A7F905722ED81DA2005ED7CD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7F9058E2ED81E46005ED7CD /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -135,7 +213,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A7F9058C2ED81E46005ED7CD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A7F905982ED81E46005ED7CD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A7F9058F2ED81E46005ED7CD /* LoraIntents */;
+			targetProxy = A7F905972ED81E46005ED7CD /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A7F905882ED81DA4005ED7CD /* Debug */ = {
@@ -143,8 +236,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Lora/Lora.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8MFAJB93CN;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lora/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -174,8 +269,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Lora/Lora.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8MFAJB93CN;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Lora/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -319,6 +416,60 @@
 			};
 			name = Release;
 		};
+		A7F9059B2ED81E46005ED7CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LoraIntents/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LoraIntents;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = main.Lora.LoraIntents;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A7F9059C2ED81E46005ED7CD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LoraIntents/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LoraIntents;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = main.Lora.LoraIntents;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -336,6 +487,15 @@
 			buildConfigurations = (
 				A7F905882ED81DA4005ED7CD /* Debug */,
 				A7F905892ED81DA4005ED7CD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A7F9059A2ED81E46005ED7CD /* Build configuration list for PBXNativeTarget "LoraIntents" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A7F9059B2ED81E46005ED7CD /* Debug */,
+				A7F9059C2ED81E46005ED7CD /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -3,8 +3,21 @@
 <plist version="1.0">
 <dict>
 	<key>com.apple.developer.networking.slicing.appcategory</key>
-	<array/>
+	<array>
+		<string>streaming-9001</string>
+		<string>communication-9000</string>
+		<string>games-6014</string>
+	</array>
 	<key>com.apple.developer.networking.slicing.trafficcategory</key>
-	<array/>
+	<array>
+		<string>avstreaming-7</string>
+		<string>responsiveav-8</string>
+		<string>background-3</string>
+		<string>defaultslice-1</string>
+		<string>callsignaling-5</string>
+		<string>video-2</string>
+		<string>responsivedata-6</string>
+		<string>voice-4</string>
+	</array>
 </dict>
 </plist>

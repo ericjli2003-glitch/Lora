@@ -10,6 +10,11 @@ import { aggregateVerdicts } from './services/aggregator.js';
 import { checkVideoFromURL, checkVideoFromBase64, generateSpokenResponse } from './services/video.js';
 import { extractYouTubeTranscript, chunkTranscript, formatTranscriptPreview } from './services/transcript.js';
 import { extractFromImage, factCheckImage } from './services/image.js';
+import { detectAIImage } from './services/detectAIImage.js';
+import { analyzeComments } from './services/analyzeComments.js';
+import { interpretScreenshot } from './services/interpretScreenshot.js';
+import { personalInterpretation } from './services/personalInterpretation.js';
+import { detectIntent, needsFactCheck, isPersonal } from './services/intentDetector.js';
 
 dotenv.config();
 
@@ -60,7 +65,7 @@ app.post('/api/check', async (req, res) => {
 
   if (!text || typeof text !== 'string' || text.trim().length === 0) {
     return res.status(400).json(errorResponse(
-      'Missing or invalid "text" field',
+      'wait what do you want me to check? send me the text!',
       { field: 'text', received: typeof text }
     ));
   }
@@ -94,7 +99,7 @@ app.post('/api/check', async (req, res) => {
 
     if (responses.length === 0) {
       return res.status(503).json(errorResponse(
-        'All AI services failed',
+        'ugh my brain isn\'t working rn, try again in a sec?',
         { modelsAttempted: models }
       ));
     }
@@ -107,13 +112,13 @@ app.post('/api/check', async (req, res) => {
     let loraMessage;
     if (consensus.verdict === 'false') {
       loraVerdict = "FALSE";
-      loraMessage = "Lora did a quick search and determined this claim is most likely FALSE.";
+      loraMessage = "yeah so I looked into it and... this isn't true. like at all.";
     } else if (consensus.verdict === 'true') {
       loraVerdict = "TRUE";
-      loraMessage = "Lora did a quick search and determined this claim is most likely TRUE.";
+      loraMessage = "ok so I checked and this actually checks out! it's legit.";
     } else {
       loraVerdict = "UNKNOWN";
-      loraMessage = "Lora did a quick search and found mixed results, so the truth is unclear.";
+      loraMessage = "honestly? I'm getting mixed signals on this one. couldn't find a clear answer either way.";
     }
 
     // Get supporting sources
@@ -132,7 +137,7 @@ app.post('/api/check', async (req, res) => {
   } catch (error) {
     console.error('Error processing request:', error);
     res.status(500).json(errorResponse(
-      'Internal server error',
+      'ok something broke on my end, my bad. try again?',
       { type: error.name }
     ));
   }
@@ -147,7 +152,7 @@ app.post('/api/check-video', async (req, res) => {
 
   if (!url && !base64) {
     return res.status(400).json(errorResponse(
-      'Missing video data. Provide either "url" or "base64" field.',
+      'need a video to look at! send me a link or upload it',
       { received: { hasUrl: !!url, hasBase64: !!base64 } }
     ));
   }
@@ -183,7 +188,7 @@ app.post('/api/check-video', async (req, res) => {
   } catch (error) {
     console.error('Video analysis error:', error);
     res.status(500).json(errorResponse(
-      'Video analysis failed',
+      'couldn\'t process that video, maybe try a different format?',
       { error: error.message }
     ));
   }
@@ -198,7 +203,7 @@ app.post('/api/check-image', async (req, res) => {
 
   if (!base64 && !url) {
     return res.status(400).json(errorResponse(
-      'Missing image data. Provide "base64" or "url" field.',
+      'send me the image! I can\'t check what I can\'t see',
       { received: { hasBase64: !!base64, hasUrl: !!url } }
     ));
   }
@@ -228,7 +233,7 @@ app.post('/api/check-image', async (req, res) => {
 
     // Step 2: If we have a main claim, fact-check it with all AIs
     let loraVerdict = 'UNKNOWN';
-    let loraMessage = "Lora did a quick search and found mixed results, so the truth is unclear.";
+    let loraMessage = "not totally sure about this one tbh, getting mixed results";
     let sources = getSources('UNKNOWN', '');
 
     if (extracted.mainClaim) {
@@ -257,10 +262,12 @@ app.post('/api/check-image', async (req, res) => {
         
         if (consensus.verdict === 'false') {
           loraVerdict = 'FALSE';
-          loraMessage = "Lora did a quick search and determined this claim is most likely FALSE.";
+          loraMessage = "looked at your screenshot — yeah that's not true";
         } else if (consensus.verdict === 'true') {
           loraVerdict = 'TRUE';
-          loraMessage = "Lora did a quick search and determined this claim is most likely TRUE.";
+          loraMessage = "checked your screenshot and yep, that's actually legit!";
+        } else {
+          loraMessage = "looked at the screenshot but honestly I'm not sure on this one";
         }
         
         sources = getSources(loraVerdict, extracted.mainClaim);
@@ -284,7 +291,406 @@ app.post('/api/check-image', async (req, res) => {
   } catch (error) {
     console.error('Image analysis error:', error);
     res.status(500).json(errorResponse(
-      'Image analysis failed',
+      'couldn\'t read that image for some reason, try again?',
+      { error: error.message }
+    ));
+  }
+});
+
+// =============================================================================
+// POST /api/detect-ai-image - Detect if an image is AI-generated
+// =============================================================================
+
+app.post('/api/detect-ai-image', async (req, res) => {
+  const { base64, url } = req.body;
+
+  if (!base64 && !url) {
+    return res.status(400).json(errorResponse(
+      'need an image to check! send me a link or the image data',
+      { received: { hasBase64: !!base64, hasUrl: !!url } }
+    ));
+  }
+
+  console.log(`\n🎨 Detecting AI-generated image...`);
+
+  try {
+    let imageBase64 = base64;
+
+    // If URL provided, fetch the image
+    if (url && !base64) {
+      console.log(`   Fetching from URL: ${url.substring(0, 50)}...`);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      imageBase64 = Buffer.from(arrayBuffer).toString('base64');
+    }
+
+    const result = await detectAIImage(imageBase64);
+    
+    console.log(`   Result: ${result}`);
+
+    let friendlyMessage;
+    if (result === 'AI') {
+      friendlyMessage = "pretty sure this is AI generated, I can tell by the way it looks";
+    } else {
+      friendlyMessage = "looks real to me! don't see the usual AI tells";
+    }
+
+    res.json({
+      success: true,
+      result: result,
+      isAI: result === 'AI',
+      message: friendlyMessage
+    });
+
+  } catch (error) {
+    console.error('AI detection error:', error);
+    res.status(500).json(errorResponse(
+      'couldn\'t analyze that one, mind trying again?',
+      { error: error.message }
+    ));
+  }
+});
+
+// =============================================================================
+// POST /detect-ai - Simplified AI image detection endpoint
+// =============================================================================
+
+app.post('/detect-ai', async (req, res) => {
+  const { imageBase64 } = req.body;
+
+  if (!imageBase64) {
+    return res.status(400).json(errorResponse(
+      'send me the image and I\'ll tell you if it\'s AI',
+      { received: { hasImageBase64: !!imageBase64 } }
+    ));
+  }
+
+  console.log(`\n🎨 Quick AI detection check...`);
+
+  try {
+    const result = await detectAIImage(imageBase64);
+    
+    console.log(`   Result: ${result}`);
+
+    let message;
+    if (result === 'AI') {
+      message = "yeah this looks AI generated to me";
+    } else {
+      message = "nah this looks like a real photo";
+    }
+
+    res.json({
+      success: true,
+      result: result,
+      message: message
+    });
+
+  } catch (error) {
+    console.error('AI detection error:', error);
+    res.status(500).json(errorResponse(
+      'couldn\'t check that image, try again?',
+      { error: error.message }
+    ));
+  }
+});
+
+// =============================================================================
+// POST /analyze-comments - Sentiment analysis for comments
+// =============================================================================
+
+app.post('/analyze-comments', async (req, res) => {
+  const { comments } = req.body;
+
+  if (!comments || !Array.isArray(comments) || comments.length === 0) {
+    return res.status(400).json(errorResponse(
+      'send me the comments and I\'ll break them down for you',
+      { received: { hasComments: !!comments, isArray: Array.isArray(comments) } }
+    ));
+  }
+
+  console.log(`\n💬 Analyzing ${comments.length} comments...`);
+
+  try {
+    const analysis = await analyzeComments(comments);
+    
+    console.log(`   Analysis complete!`);
+    console.log(`   Overall summary: ${analysis.overallSummary?.substring(0, 50)}...`);
+
+    res.json({
+      success: true,
+      message: "ok here's what I got from those comments",
+      analysis: analysis,
+      commentCount: comments.length
+    });
+
+  } catch (error) {
+    console.error('Comment analysis error:', error);
+    res.status(500).json(errorResponse(
+      'had trouble with those comments, try again?',
+      { error: error.message }
+    ));
+  }
+});
+
+// =============================================================================
+// POST /interpret - Smart screenshot/text interpretation
+// =============================================================================
+
+app.post('/interpret', async (req, res) => {
+  const { text } = req.body;
+
+  if (!text || typeof text !== 'string' || text.trim().length === 0) {
+    return res.status(400).json(errorResponse(
+      'paste the text from your screenshot and I\'ll tell you what\'s going on',
+      { received: { hasText: !!text, type: typeof text } }
+    ));
+  }
+
+  console.log(`\n🔮 Interpreting text...`);
+  console.log(`   Text preview: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+
+  try {
+    // First, detect the intent
+    const intentResult = await detectIntent(text);
+    console.log(`   Intent: ${intentResult.intent} (${intentResult.confidence}%)`);
+
+    // Route based on intent
+    if (isPersonal(intentResult.intent)) {
+      // Personal content — warm interpretation, no fact-checking
+      console.log(`   Mode: Personal interpretation`);
+      
+      const interpretation = await personalInterpretation(text);
+      
+      console.log(`   Vibe: ${interpretation.vibe}`);
+      console.log(`   Emotion: ${interpretation.emotion}`);
+
+      res.json({
+        success: true,
+        type: 'personal',
+        interpretation: interpretation,
+        intent: intentResult,
+        message: "here's my take on that — this one feels personal"
+      });
+
+    } else if (needsFactCheck(intentResult.intent)) {
+      // Factual claim — use screenshot interpretation for context analysis
+      console.log(`   Mode: Screenshot analysis (factual context)`);
+      
+      const interpretation = await interpretScreenshot(text);
+      
+      console.log(`   Tone: ${interpretation.tone}`);
+      console.log(`   Conflict: ${interpretation.conflict?.detected ? 'Yes' : 'No'}`);
+
+      res.json({
+        success: true,
+        type: 'factual',
+        interpretation: interpretation,
+        intent: intentResult,
+        message: "ok here's my read on this"
+      });
+
+    } else {
+      // Questions, unclear — default to personal interpretation
+      console.log(`   Mode: Default to personal`);
+      
+      const interpretation = await personalInterpretation(text);
+
+      res.json({
+        success: true,
+        type: intentResult.intent,
+        interpretation: interpretation,
+        intent: intentResult,
+        message: "not totally sure what this is about, but here's my best take"
+      });
+    }
+
+  } catch (error) {
+    console.error('Interpretation error:', error);
+    
+    // Fallback: try personal interpretation
+    try {
+      console.log(`   Fallback: trying personal interpretation`);
+      const fallbackInterpretation = await personalInterpretation(text);
+      
+      res.json({
+        success: true,
+        type: 'personal',
+        interpretation: fallbackInterpretation,
+        message: "not totally sure what this is about, but here's my best guess"
+      });
+    } catch (fallbackError) {
+      res.status(500).json(errorResponse(
+        'couldn\'t figure that one out, try sending it again?',
+        { error: error.message }
+      ));
+    }
+  }
+});
+
+// =============================================================================
+// POST /analyze - Smart auto-detection (post vs comments vs personal)
+// =============================================================================
+
+app.post('/analyze', async (req, res) => {
+  const { input } = req.body;
+
+  if (!input) {
+    return res.status(400).json(errorResponse(
+      'send me something to look at — a post or some comments',
+      { received: { hasInput: !!input } }
+    ));
+  }
+
+  console.log(`\n🧠 Smart analysis request...`);
+
+  try {
+    // Auto-detect: array = comments, string = needs intent detection
+    const isCommentsArray = Array.isArray(input);
+    
+    if (isCommentsArray) {
+      // It's comments — analyze sentiment
+      console.log(`   Detected: ${input.length} comments`);
+      
+      if (input.length === 0) {
+        return res.status(400).json(errorResponse(
+          'that\'s an empty list, send me actual comments!',
+          { received: { type: 'array', length: 0 } }
+        ));
+      }
+
+      const analysis = await analyzeComments(input);
+      
+      res.json({
+        success: true,
+        type: 'comments',
+        message: "here's what I got from those comments",
+        analysis: analysis,
+        commentCount: input.length
+      });
+
+    } else if (typeof input === 'string' && input.trim().length > 0) {
+      // It's text — detect intent first
+      console.log(`   Detected: text input`);
+      console.log(`   Text: "${input.substring(0, 50)}${input.length > 50 ? '...' : ''}"`);
+
+      // Detect intent using AI
+      const intentResult = await detectIntent(input);
+      console.log(`   Intent: ${intentResult.intent} (${intentResult.confidence}%)`);
+
+      if (isPersonal(intentResult.intent)) {
+        // Personal content — warm interpretation, NO fact-checking
+        console.log(`   Mode: Personal interpretation`);
+        
+        const interpretation = await personalInterpretation(input);
+        
+        res.json({
+          success: true,
+          type: 'personal',
+          message: interpretation.reaction,
+          interpretation: interpretation,
+          intent: intentResult
+        });
+
+      } else if (needsFactCheck(intentResult.intent)) {
+        // Factual claim — fact-check it
+        console.log(`   Mode: Fact-checking`);
+
+        const results = await Promise.allSettled([
+          checkWithOpenAI(input),
+          checkWithAnthropic(input),
+          checkWithGoogle(input),
+          checkWithPerplexity(input)
+        ]);
+
+        const responses = [];
+        const models = ['OpenAI', 'Anthropic', 'Google', 'Perplexity'];
+
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled' && result.value) {
+            responses.push({ model: models[index], ...result.value });
+            console.log(`   ✅ ${models[index]}: ${result.value.verdict}`);
+          } else {
+            console.log(`   ❌ ${models[index]}: Failed`);
+          }
+        });
+
+        if (responses.length === 0) {
+          return res.status(503).json(errorResponse(
+            'my brain isn\'t working rn, try again in a sec',
+            { modelsAttempted: models }
+          ));
+        }
+
+        const consensus = aggregateVerdicts(responses);
+
+        let loraVerdict, loraMessage;
+        if (consensus.verdict === 'false') {
+          loraVerdict = "FALSE";
+          loraMessage = "checked this and nah, it's not true";
+        } else if (consensus.verdict === 'true') {
+          loraVerdict = "TRUE";
+          loraMessage = "yeah this actually checks out, it's legit";
+        } else {
+          loraVerdict = "UNKNOWN";
+          loraMessage = "honestly not sure on this one, getting mixed signals";
+        }
+
+        res.json({
+          success: true,
+          type: 'factual',
+          message: loraMessage,
+          claim: input,
+          loraVerdict: loraVerdict,
+          sources: getSources(loraVerdict, input),
+          intent: intentResult
+        });
+
+      } else {
+        // Questions or unclear — personal interpretation
+        console.log(`   Mode: Default personal interpretation`);
+        
+        const interpretation = await personalInterpretation(input);
+        
+        res.json({
+          success: true,
+          type: intentResult.intent,
+          message: interpretation.reaction,
+          interpretation: interpretation,
+          intent: intentResult
+        });
+      }
+
+    } else {
+      return res.status(400).json(errorResponse(
+        'not sure what to do with that — send me text or a list of comments',
+        { received: { type: typeof input } }
+      ));
+    }
+
+  } catch (error) {
+    console.error('Smart analysis error:', error);
+    
+    // Fallback to personal interpretation
+    if (typeof input === 'string') {
+      try {
+        const fallback = await personalInterpretation(input);
+        res.json({
+          success: true,
+          type: 'personal',
+          message: "not totally sure what this is, but here's my take",
+          interpretation: fallback
+        });
+        return;
+      } catch (e) {
+        // Continue to error response
+      }
+    }
+    
+    res.status(500).json(errorResponse(
+      'something broke, try again?',
       { error: error.message }
     ));
   }
@@ -299,7 +705,7 @@ app.post('/api/check-transcript', async (req, res) => {
 
   if (!url && !rawTranscript) {
     return res.status(400).json(errorResponse(
-      'Missing input. Provide either "url" (YouTube) or "transcript" (raw text).',
+      'send me a youtube link or paste the transcript',
       { received: { hasUrl: !!url, hasTranscript: !!rawTranscript } }
     ));
   }
@@ -360,7 +766,7 @@ app.post('/api/check-transcript', async (req, res) => {
 
     if (allResponses.length === 0) {
       return res.status(503).json(errorResponse(
-        'All AI services failed to analyze the transcript',
+        'couldn\'t process that transcript, try again?',
         { modelsAttempted: models }
       ));
     }
@@ -392,7 +798,7 @@ app.post('/api/check-transcript', async (req, res) => {
   } catch (error) {
     console.error('Transcript analysis error:', error);
     res.status(500).json(errorResponse(
-      'Transcript analysis failed',
+      'had trouble with that transcript, try again?',
       { error: error.message }
     ));
   }
@@ -407,7 +813,7 @@ app.post('/api/chat', async (req, res) => {
 
   if (!message || typeof message !== 'string' || message.trim().length === 0) {
     return res.status(400).json(errorResponse(
-      'Missing or invalid "message" field',
+      'what do you wanna talk about? send me something',
       { field: 'message', received: typeof message }
     ));
   }
@@ -430,7 +836,7 @@ app.post('/api/chat', async (req, res) => {
         break;
       default:
         return res.status(400).json(errorResponse(
-          'Invalid model specified',
+          'don\'t know that model, try openai, anthropic, or google',
           { validModels: ['openai', 'anthropic', 'google'], received: model }
         ));
     }
@@ -444,7 +850,7 @@ app.post('/api/chat', async (req, res) => {
   } catch (error) {
     console.error('Chat error:', error);
     res.status(500).json(errorResponse(
-      'Failed to get response from AI',
+      'brain fart, try that again',
       { model, type: error.name }
     ));
   }
@@ -513,7 +919,7 @@ app.post('/api/task', async (req, res) => {
 
   if (!type || typeof type !== 'string') {
     return res.status(400).json(errorResponse(
-      'Missing or invalid "type" field',
+      'what do you need? summarize, translate, or extract',
       { field: 'type', received: typeof type }
     ));
   }
@@ -535,7 +941,7 @@ app.post('/api/task', async (req, res) => {
         break;
       default:
         return res.status(400).json(errorResponse(
-          'Unknown task type',
+          'don\'t know that task — try summarize, translate, or extract',
           { validTypes: ['summarize', 'translate', 'extract'], received: type }
         ));
     }
@@ -549,7 +955,7 @@ app.post('/api/task', async (req, res) => {
   } catch (error) {
     console.error('Task error:', error);
     res.status(500).json(errorResponse(
-      'Task processing failed',
+      'that didn\'t work, try again?',
       { type, error: error.message }
     ));
   }
@@ -686,7 +1092,13 @@ app.listen(PORT, () => {
   console.log(`   POST /api/check-image      - Fact-check image/screenshot (Gemini + multi-AI)`);
   console.log(`   POST /api/check-video      - Fact-check video (Gemini vision)`);
   console.log(`   POST /api/check-transcript - Fact-check video via transcript (multi-AI)`);
+  console.log(`   POST /api/detect-ai-image  - Detect if image is AI-generated`);
+  console.log(`   POST /detect-ai            - Quick AI image detection`);
+  console.log(`   POST /analyze-comments     - Analyze comment sentiment & topics`);
+  console.log(`   POST /interpret            - Smart text interpretation (auto-detects personal vs factual)`);
+  console.log(`   POST /analyze              - Smart auto-detect (personal vs factual vs comments)`);
   console.log(`   POST /api/chat             - General LLM chat`);
   console.log(`   POST /api/task             - Task processing (summarize, translate, extract)`);
-  console.log(`   GET  /health               - Health check\n`);
+  console.log(`   GET  /health               - Health check`);
+  console.log(`\n✨ All done! Let me know if you want to analyze something else.\n`);
 });
