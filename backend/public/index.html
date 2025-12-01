@@ -350,6 +350,74 @@
     .model-score.medium { color: #fbbf24; }
     .model-score.low { color: #f87171; }
 
+    /* Latency & Pipeline Info */
+    .latency-info {
+      display: flex;
+      gap: 16px;
+      margin: 12px 0;
+      padding: 10px 14px;
+      background: rgba(139, 92, 246, 0.1);
+      border-radius: 8px;
+      font-size: 12px;
+    }
+
+    .latency-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .latency-label {
+      color: rgba(255, 255, 255, 0.4);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 10px;
+    }
+
+    .latency-value {
+      color: #a78bfa;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .latency-value.fast { color: #4ade80; }
+    .latency-value.medium { color: #fbbf24; }
+    .latency-value.slow { color: #f87171; }
+
+    .pipeline-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .pipeline-badge.cache-hit {
+      background: rgba(74, 222, 128, 0.2);
+      color: #4ade80;
+    }
+
+    .pipeline-badge.skipped {
+      background: rgba(139, 92, 246, 0.2);
+      color: #a78bfa;
+    }
+
+    .used-models {
+      margin-top: 8px;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .used-models span {
+      display: inline-block;
+      padding: 2px 6px;
+      margin: 2px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+
     .verdict-badge.ai {
       background: rgba(234, 179, 8, 0.2);
       color: #fbbf24;
@@ -583,6 +651,25 @@
             <div class="score-fill" id="scoreFill" style="width: 0%"></div>
           </div>
         </div>
+        <div class="latency-info" id="latencyInfo" style="display: none;">
+          <div class="latency-item">
+            <span class="latency-label">Fast Phase</span>
+            <span class="latency-value" id="fastLatency">0ms</span>
+          </div>
+          <div class="latency-item">
+            <span class="latency-label">Full Phase</span>
+            <span class="latency-value" id="fullLatency">0ms</span>
+          </div>
+          <div class="latency-item">
+            <span class="latency-label">Total</span>
+            <span class="latency-value" id="totalLatency">0ms</span>
+          </div>
+          <div class="latency-item" id="pipelineStatus" style="display: none;">
+            <span class="latency-label">Status</span>
+            <span class="pipeline-badge" id="pipelineBadge"></span>
+          </div>
+        </div>
+        <div class="used-models" id="usedModels" style="display: none;"></div>
         <p class="lora-message" id="loraMessage"></p>
         <div class="interpretation-details" id="interpretationDetails" style="display: none;"></div>
         <div class="model-breakdown" id="modelBreakdown" style="display: none;">
@@ -674,6 +761,60 @@
         scoreContainer.style.display = 'block';
       } else {
         scoreContainer.style.display = 'none';
+      }
+
+      // Latency Info (Ultra-Speed Mode)
+      const latencyInfo = document.getElementById('latencyInfo');
+      const usedModelsDiv = document.getElementById('usedModels');
+      
+      if (data.latency) {
+        const { fastPhaseMs, fullPhaseMs, totalMs } = data.latency;
+        
+        document.getElementById('fastLatency').textContent = fastPhaseMs + 'ms';
+        document.getElementById('fullLatency').textContent = fullPhaseMs + 'ms';
+        
+        const totalEl = document.getElementById('totalLatency');
+        totalEl.textContent = totalMs + 'ms';
+        totalEl.className = 'latency-value ' + (totalMs < 1000 ? 'fast' : totalMs < 3000 ? 'medium' : 'slow');
+        
+        // Pipeline status badges
+        const pipelineStatus = document.getElementById('pipelineStatus');
+        const pipelineBadge = document.getElementById('pipelineBadge');
+        
+        if (data.pipelineInfo?.cacheHit || data.fromCache) {
+          pipelineBadge.textContent = '⚡ CACHE HIT';
+          pipelineBadge.className = 'pipeline-badge cache-hit';
+          pipelineStatus.style.display = 'block';
+        } else if (data.pipelineInfo?.skippedFull) {
+          pipelineBadge.textContent = 'SKIPPED FULL';
+          pipelineBadge.className = 'pipeline-badge skipped';
+          pipelineStatus.style.display = 'block';
+        } else if (data.pipelineInfo?.skippedMid) {
+          pipelineBadge.textContent = 'SKIPPED MID+FULL';
+          pipelineBadge.className = 'pipeline-badge skipped';
+          pipelineStatus.style.display = 'block';
+        } else {
+          pipelineStatus.style.display = 'none';
+        }
+        
+        latencyInfo.style.display = 'flex';
+      } else {
+        latencyInfo.style.display = 'none';
+      }
+
+      // Used Models
+      if (data.usedModels) {
+        const { fast = [], mid = [], full = [] } = data.usedModels;
+        const allModels = [...fast, ...mid, ...full];
+        
+        if (allModels.length > 0) {
+          usedModelsDiv.innerHTML = 'Models: ' + allModels.map(m => `<span>${m}</span>`).join('');
+          usedModelsDiv.style.display = 'block';
+        } else {
+          usedModelsDiv.style.display = 'none';
+        }
+      } else {
+        usedModelsDiv.style.display = 'none';
       }
 
       // Model Breakdown

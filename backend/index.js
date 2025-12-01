@@ -24,6 +24,11 @@ import {
   getSpectrumMessage,
   getVerdictFromScore 
 } from './services/truthfulnessSpectrum.js';
+import { 
+  ultraSpeedCheck, 
+  getCacheStats, 
+  clearCaches 
+} from './services/ultraSpeed.js';
 
 dotenv.config();
 
@@ -92,7 +97,7 @@ app.get('/health', (req, res) => {
 // =============================================================================
 
 app.post('/api/check', async (req, res) => {
-  const { text } = req.body;
+  const { text, mode: requestMode } = req.body;
 
   if (!text || typeof text !== 'string' || text.trim().length === 0) {
     return res.status(400).json(errorResponse(
@@ -121,65 +126,31 @@ app.post('/api/check', async (req, res) => {
         loraVerdict: null,
         loraMessage: interpretation.reaction || "this feels personal, not something to fact-check",
         reason: personalCheck.reason,
-        interpretation: interpretation
+        interpretation: interpretation,
+        latency: { fastPhaseMs: 0, fullPhaseMs: 0, totalMs: 0 }
       });
     }
 
-    // Step 2: It's a factual claim — query all AI models
-    console.log(`   Mode: Fact-check`);
+    // Step 2: It's a factual claim — use ULTRA-SPEED pipeline
+    console.log(`   Mode: Ultra-Speed Fact-check ⚡`);
     
-    const results = await Promise.allSettled([
-      checkWithOpenAI(text),
-      checkWithAnthropic(text),
-      checkWithGoogle(text),
-      checkWithPerplexity(text)
-    ]);
-
-    // Extract successful responses
-    const responses = [];
-    const models = ['OpenAI', 'Anthropic', 'Google', 'Perplexity'];
-
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled' && result.value) {
-        responses.push({
-          model: models[index],
-          ...result.value
-        });
-        console.log(`   ✅ ${models[index]}: ${result.value.verdict} (${result.value.confidence}%)`);
-      } else {
-        console.log(`   ❌ ${models[index]}: Failed - ${result.reason?.message || 'Unknown error'}`);
-      }
-    });
-
-    if (responses.length === 0) {
-      return res.status(503).json(errorResponse(
-        'ugh my brain isn\'t working rn, try again in a sec?',
-        { modelsAttempted: models }
-      ));
-    }
-
-    // Step 3: Compute truthfulness spectrum (0-100%)
-    const spectrum = computeTruthfulnessSpectrum(responses);
+    const result = await ultraSpeedCheck(text);
     
-    console.log(`\n🎯 Truthfulness Score: ${spectrum.score}% (${spectrum.consensus})`);
-
-    // Get verdict and message from score
-    const loraVerdict = getVerdictFromScore(spectrum.score);
-    const loraMessage = getSpectrumMessage(spectrum.score, spectrum.consensus);
-
     // Get supporting sources
-    const sources = getSources(loraVerdict, text);
+    const sources = getSources(result.loraVerdict, text);
 
     res.json({
       success: true,
-      mode: 'fact_check',
+      mode: result.mode,
       claim: text,
-      score: spectrum.score,
-      loraVerdict: loraVerdict,
-      loraMessage: loraMessage,
-      consensus: spectrum.consensus,
-      explanation: spectrum.explanation,
-      modelBreakdown: spectrum.modelBreakdown,
+      score: result.score,
+      confidence: result.confidence,
+      loraVerdict: result.loraVerdict,
+      loraMessage: result.loraMessage,
+      latency: result.latency,
+      usedModels: result.usedModels,
+      spectrumBreakdown: result.spectrumBreakdown,
+      pipelineInfo: result.pipelineInfo,
       sources: sources
     });
 
@@ -190,6 +161,31 @@ app.post('/api/check', async (req, res) => {
       { type: error.name }
     ));
   }
+});
+
+// =============================================================================
+// GET /api/cache-stats - View cache statistics
+// =============================================================================
+
+app.get('/api/cache-stats', (req, res) => {
+  const stats = getCacheStats();
+  res.json({
+    success: true,
+    caches: stats,
+    message: `${stats.fastCache + stats.fullCache} items cached`
+  });
+});
+
+// =============================================================================
+// POST /api/clear-cache - Clear all caches (admin)
+// =============================================================================
+
+app.post('/api/clear-cache', (req, res) => {
+  clearCaches();
+  res.json({
+    success: true,
+    message: 'all caches cleared'
+  });
 });
 
 // =============================================================================
@@ -740,54 +736,25 @@ app.post('/analyze', async (req, res) => {
         });
 
       } else if (needsFactCheck(intentResult.intent)) {
-        // Factual claim — fact-check it with truthfulness spectrum
-        console.log(`   Mode: Fact-checking with spectrum`);
+        // Factual claim — use ULTRA-SPEED pipeline
+        console.log(`   Mode: Ultra-Speed Fact-checking ⚡`);
 
-        const results = await Promise.allSettled([
-          checkWithOpenAI(input),
-          checkWithAnthropic(input),
-          checkWithGoogle(input),
-          checkWithPerplexity(input)
-        ]);
-
-        const responses = [];
-        const models = ['OpenAI', 'Anthropic', 'Google', 'Perplexity'];
-
-        results.forEach((result, index) => {
-          if (result.status === 'fulfilled' && result.value) {
-            responses.push({ model: models[index], ...result.value });
-            console.log(`   ✅ ${models[index]}: ${result.value.verdict} (${result.value.confidence}%)`);
-          } else {
-            console.log(`   ❌ ${models[index]}: Failed`);
-          }
-        });
-
-        if (responses.length === 0) {
-          return res.status(503).json(errorResponse(
-            'my brain isn\'t working rn, try again in a sec',
-            { modelsAttempted: models }
-          ));
-        }
-
-        // Compute truthfulness spectrum (0-100%)
-        const spectrum = computeTruthfulnessSpectrum(responses);
-        const loraVerdict = getVerdictFromScore(spectrum.score);
-        const loraMessage = getSpectrumMessage(spectrum.score, spectrum.consensus);
-
-        console.log(`   Truthfulness Score: ${spectrum.score}% (${spectrum.consensus})`);
+        const result = await ultraSpeedCheck(input);
 
         res.json({
           success: true,
           mode: 'fact_check',
           type: 'factual',
-          message: loraMessage,
+          message: result.loraMessage,
           claim: input,
-          score: spectrum.score,
-          loraVerdict: loraVerdict,
-          consensus: spectrum.consensus,
-          explanation: spectrum.explanation,
-          modelBreakdown: spectrum.modelBreakdown,
-          sources: getSources(loraVerdict, input),
+          score: result.score,
+          confidence: result.confidence,
+          loraVerdict: result.loraVerdict,
+          latency: result.latency,
+          usedModels: result.usedModels,
+          spectrumBreakdown: result.spectrumBreakdown,
+          pipelineInfo: result.pipelineInfo,
+          sources: getSources(result.loraVerdict, input),
           intent: intentResult
         });
 
