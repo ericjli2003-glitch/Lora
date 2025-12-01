@@ -277,6 +277,79 @@
       border: 1px solid rgba(139, 92, 246, 0.3);
     }
 
+    .verdict-badge.mixed {
+      background: rgba(234, 179, 8, 0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(234, 179, 8, 0.3);
+    }
+
+    /* Truthfulness Score Bar */
+    .score-container {
+      margin: 16px 0;
+    }
+
+    .score-label {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .score-bar {
+      height: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .score-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.5s ease;
+    }
+
+    .score-fill.high { background: linear-gradient(90deg, #4ade80, #22c55e); }
+    .score-fill.medium { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+    .score-fill.low { background: linear-gradient(90deg, #f87171, #ef4444); }
+
+    /* Model Breakdown */
+    .model-breakdown {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .breakdown-title {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+    }
+
+    .model-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .model-name {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .model-score {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .model-score.high { color: #4ade80; }
+    .model-score.medium { color: #fbbf24; }
+    .model-score.low { color: #f87171; }
+
     .verdict-badge.ai {
       background: rgba(234, 179, 8, 0.2);
       color: #fbbf24;
@@ -501,8 +574,21 @@
         <div class="verdict-row" id="verdictRow">
           <span class="verdict-badge" id="verdictBadge">TRUE</span>
         </div>
+        <div class="score-container" id="scoreContainer" style="display: none;">
+          <div class="score-label">
+            <span>truthfulness</span>
+            <span id="scoreValue">0%</span>
+          </div>
+          <div class="score-bar">
+            <div class="score-fill" id="scoreFill" style="width: 0%"></div>
+          </div>
+        </div>
         <p class="lora-message" id="loraMessage"></p>
         <div class="interpretation-details" id="interpretationDetails" style="display: none;"></div>
+        <div class="model-breakdown" id="modelBreakdown" style="display: none;">
+          <div class="breakdown-title">model breakdown</div>
+          <div id="modelBreakdownList"></div>
+        </div>
       </div>
       <div class="result-card" id="sourcesCard" style="display: none;">
         <div class="sources-title">sources</div>
@@ -556,6 +642,8 @@
       const badge = document.getElementById('verdictBadge');
       const details = document.getElementById('interpretationDetails');
       const sourcesCard = document.getElementById('sourcesCard');
+      const scoreContainer = document.getElementById('scoreContainer');
+      const modelBreakdown = document.getElementById('modelBreakdown');
       
       // Handle different result types
       if (data.loraVerdict) {
@@ -566,12 +654,41 @@
         badge.textContent = data.result;
         badge.className = 'verdict-badge ' + data.result.toLowerCase();
         verdictRow.style.display = 'flex';
-      } else if (data.type === 'personal') {
+      } else if (data.type === 'personal' || data.mode === 'personal') {
         badge.textContent = 'PERSONAL';
         badge.className = 'verdict-badge personal';
         verdictRow.style.display = 'flex';
       } else {
         verdictRow.style.display = 'none';
+      }
+
+      // Truthfulness Score (0-100%)
+      if (data.score !== undefined && data.score !== null && data.mode === 'fact_check') {
+        const score = data.score;
+        document.getElementById('scoreValue').textContent = score + '%';
+        
+        const scoreFill = document.getElementById('scoreFill');
+        scoreFill.style.width = score + '%';
+        scoreFill.className = 'score-fill ' + (score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low');
+        
+        scoreContainer.style.display = 'block';
+      } else {
+        scoreContainer.style.display = 'none';
+      }
+
+      // Model Breakdown
+      if (data.modelBreakdown && data.modelBreakdown.length > 0) {
+        const breakdownList = document.getElementById('modelBreakdownList');
+        breakdownList.innerHTML = data.modelBreakdown.map(m => {
+          const scoreClass = m.baseScore >= 70 ? 'high' : m.baseScore >= 40 ? 'medium' : 'low';
+          return `<div class="model-row">
+            <span class="model-name">${m.model}</span>
+            <span class="model-score ${scoreClass}">${m.baseScore}%</span>
+          </div>`;
+        }).join('');
+        modelBreakdown.style.display = 'block';
+      } else {
+        modelBreakdown.style.display = 'none';
       }
 
       // Message

@@ -17,6 +17,13 @@ import { interpretScreenshot } from './services/interpretScreenshot.js';
 import { personalInterpretation } from './services/personalInterpretation.js';
 import { detectIntent, needsFactCheck, isPersonal } from './services/intentDetector.js';
 import { extractArticleText, extractClaims } from './services/urlFactCheck.js';
+import { 
+  detectPersonalStatement, 
+  computeTruthfulnessSpectrum, 
+  analyzeWithSpectrum,
+  getSpectrumMessage,
+  getVerdictFromScore 
+} from './services/truthfulnessSpectrum.js';
 
 dotenv.config();
 
@@ -97,7 +104,30 @@ app.post('/api/check', async (req, res) => {
   console.log(`\n📝 Checking claim: "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`);
 
   try {
-    // Query all AI models in parallel
+    // Step 1: Check if this is a personal statement (skip fact-checking)
+    const personalCheck = detectPersonalStatement(text);
+    
+    if (personalCheck.isPersonal) {
+      console.log(`   Mode: Personal (${personalCheck.reason})`);
+      
+      // Route to personal interpretation instead
+      const interpretation = await personalInterpretation(text);
+      
+      return res.json({
+        success: true,
+        mode: 'personal',
+        claim: text,
+        score: null,
+        loraVerdict: null,
+        loraMessage: interpretation.reaction || "this feels personal, not something to fact-check",
+        reason: personalCheck.reason,
+        interpretation: interpretation
+      });
+    }
+
+    // Step 2: It's a factual claim — query all AI models
+    console.log(`   Mode: Fact-check`);
+    
     const results = await Promise.allSettled([
       checkWithOpenAI(text),
       checkWithAnthropic(text),
@@ -115,9 +145,9 @@ app.post('/api/check', async (req, res) => {
           model: models[index],
           ...result.value
         });
-        console.log(`✅ ${models[index]}: ${result.value.verdict}`);
+        console.log(`   ✅ ${models[index]}: ${result.value.verdict} (${result.value.confidence}%)`);
       } else {
-        console.log(`❌ ${models[index]}: Failed - ${result.reason?.message || 'Unknown error'}`);
+        console.log(`   ❌ ${models[index]}: Failed - ${result.reason?.message || 'Unknown error'}`);
       }
     });
 
@@ -128,33 +158,28 @@ app.post('/api/check', async (req, res) => {
       ));
     }
 
-    // Aggregate verdicts into consensus
-    const consensus = aggregateVerdicts(responses);
+    // Step 3: Compute truthfulness spectrum (0-100%)
+    const spectrum = computeTruthfulnessSpectrum(responses);
+    
+    console.log(`\n🎯 Truthfulness Score: ${spectrum.score}% (${spectrum.consensus})`);
 
-    // Determine Lora verdict (TRUE / FALSE / UNKNOWN)
-    let loraVerdict;
-    let loraMessage;
-    if (consensus.verdict === 'false') {
-      loraVerdict = "FALSE";
-      loraMessage = "yeah so I looked into it and... this isn't true. like at all.";
-    } else if (consensus.verdict === 'true') {
-      loraVerdict = "TRUE";
-      loraMessage = "ok so I checked and this actually checks out! it's legit.";
-    } else {
-      loraVerdict = "UNKNOWN";
-      loraMessage = "honestly? I'm getting mixed signals on this one. couldn't find a clear answer either way.";
-    }
+    // Get verdict and message from score
+    const loraVerdict = getVerdictFromScore(spectrum.score);
+    const loraMessage = getSpectrumMessage(spectrum.score, spectrum.consensus);
 
     // Get supporting sources
     const sources = getSources(loraVerdict, text);
 
-    console.log(`\n🎯 Lora Verdict: ${loraVerdict}`);
-
     res.json({
       success: true,
+      mode: 'fact_check',
       claim: text,
+      score: spectrum.score,
       loraVerdict: loraVerdict,
       loraMessage: loraMessage,
+      consensus: spectrum.consensus,
+      explanation: spectrum.explanation,
+      modelBreakdown: spectrum.modelBreakdown,
       sources: sources
     });
 
@@ -715,8 +740,8 @@ app.post('/analyze', async (req, res) => {
         });
 
       } else if (needsFactCheck(intentResult.intent)) {
-        // Factual claim — fact-check it
-        console.log(`   Mode: Fact-checking`);
+        // Factual claim — fact-check it with truthfulness spectrum
+        console.log(`   Mode: Fact-checking with spectrum`);
 
         const results = await Promise.allSettled([
           checkWithOpenAI(input),
@@ -731,7 +756,7 @@ app.post('/analyze', async (req, res) => {
         results.forEach((result, index) => {
           if (result.status === 'fulfilled' && result.value) {
             responses.push({ model: models[index], ...result.value });
-            console.log(`   ✅ ${models[index]}: ${result.value.verdict}`);
+            console.log(`   ✅ ${models[index]}: ${result.value.verdict} (${result.value.confidence}%)`);
           } else {
             console.log(`   ❌ ${models[index]}: Failed`);
           }
@@ -744,26 +769,24 @@ app.post('/analyze', async (req, res) => {
           ));
         }
 
-        const consensus = aggregateVerdicts(responses);
+        // Compute truthfulness spectrum (0-100%)
+        const spectrum = computeTruthfulnessSpectrum(responses);
+        const loraVerdict = getVerdictFromScore(spectrum.score);
+        const loraMessage = getSpectrumMessage(spectrum.score, spectrum.consensus);
 
-        let loraVerdict, loraMessage;
-        if (consensus.verdict === 'false') {
-          loraVerdict = "FALSE";
-          loraMessage = "checked this and nah, it's not true";
-        } else if (consensus.verdict === 'true') {
-          loraVerdict = "TRUE";
-          loraMessage = "yeah this actually checks out, it's legit";
-        } else {
-          loraVerdict = "UNKNOWN";
-          loraMessage = "honestly not sure on this one, getting mixed signals";
-        }
+        console.log(`   Truthfulness Score: ${spectrum.score}% (${spectrum.consensus})`);
 
         res.json({
           success: true,
+          mode: 'fact_check',
           type: 'factual',
           message: loraMessage,
           claim: input,
+          score: spectrum.score,
           loraVerdict: loraVerdict,
+          consensus: spectrum.consensus,
+          explanation: spectrum.explanation,
+          modelBreakdown: spectrum.modelBreakdown,
           sources: getSources(loraVerdict, input),
           intent: intentResult
         });
