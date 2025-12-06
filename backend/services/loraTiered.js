@@ -248,15 +248,13 @@ async function runPremiumTier(input) {
     ? Math.round(factualResults.reduce((sum, s) => sum + s.credibility, 0) / factualResults.length)
     : null;
   
-  // Generate premium response with consensus info
-  const premiumSiriResponse = generatePremiumSiriResponse(overallCredibility, usedModels.length, consensus);
-  
+  // Use LLM-generated siriResponse (no hardcoding)
   return {
     segments: updatedSegments,
     overallCredibility,
     personalResponse: analysis.personalResponse,
     factCheckSummary: analysis.factCheckSummary,
-    siriResponse: premiumSiriResponse,
+    siriResponse: analysis.siriResponse, // LLM-generated, not hardcoded
     overallMessage: analysis.overallMessage,
     tier: 'premium',
     models: usedModels,
@@ -265,31 +263,8 @@ async function runPremiumTier(input) {
   };
 }
 
-function generatePremiumSiriResponse(credibility, modelCount, consensus) {
-  if (credibility === null) {
-    return "I checked this with multiple AI models but couldn't verify the claims.";
-  }
-  
-  const agreementAvg = consensus.filter(c => c.agreement).length > 0
-    ? Math.round(consensus.filter(c => c.agreement).reduce((sum, c) => sum + c.agreement, 0) / consensus.filter(c => c.agreement).length)
-    : null;
-  
-  let response = `I checked this with ${modelCount} AI models. `;
-  
-  if (credibility >= 80) {
-    response += `They agree it's ${credibility}% credible.`;
-  } else if (credibility >= 50) {
-    response += `Mixed results at ${credibility}% credible.`;
-  } else {
-    response += `They agree this is mostly false, only ${credibility}% credible.`;
-  }
-  
-  if (agreementAvg !== null && agreementAvg < 70) {
-    response += " The models disagreed on some points.";
-  }
-  
-  return response;
-}
+// NO hardcoded generatePremiumSiriResponse
+// LLM generates all responses dynamically via ANALYSIS_PROMPT
 
 // =============================================================================
 // MAIN ENTRY POINT

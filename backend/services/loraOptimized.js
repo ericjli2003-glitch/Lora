@@ -265,14 +265,8 @@ export async function runOptimizedPipeline(input) {
     else if (hasFactual) mode = 'fact_check';
     else mode = 'empty';
     
-    // Update siri response with model count
-    if (models.length > 1 && analysis.overallCredibility !== null) {
-      analysis.siriResponse = `I checked this with ${models.length} AI models. ${
-        analysis.overallCredibility >= 70 ? `It's ${analysis.overallCredibility}% credible.` :
-        analysis.overallCredibility >= 40 ? `Mixed results, ${analysis.overallCredibility}% credible.` :
-        `This is mostly false, only ${analysis.overallCredibility}% credible.`
-      }`;
-    }
+    // NO hardcoded siriResponse - LLM generates it in ANALYSIS_PROMPT
+    // Just pass through what the LLM generated
     
     const latencyMs = (performance.now() - startTime).toFixed(2);
     
