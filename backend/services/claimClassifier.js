@@ -24,12 +24,21 @@ const FACTUAL_OVERRIDE_PATTERNS = [
   /(vaccine|vaccination|ivermectin|hydroxychloroquine|bleach|miracle cure)/i,
   /(drinking|injecting|taking) .{0,20} (cures?|kills?|prevents?)/i,
   
-  // Geographic/historical claims
+  // Geographic/historical claims - EXPANDED
+  /(tower|wall|building|monument|landmark|statue|bridge|palace|castle).{0,20}(is |are |in |located)/i,
+  /(eiffel|big ben|statue of liberty|great wall|taj mahal|colosseum|pyramids?)/i,
+  /\b(london|paris|tokyo|new york|rome|berlin|moscow|beijing|cairo)\b.{0,20}(is|has|was)/i,
   /(is|are|was|were) (in|the capital of|located in|built in|founded in)/i,
-  /(tower|wall|building|monument|landmark) .{0,30} (in|is in|located)/i,
+  /(capital of|located in|built in|founded in|is in)\s+\w+/i,
   
-  // Famous people claims
-  /(einstein|newton|tesla|edison|shakespeare|mozart|picasso|darwin) .{0,30} (failed|invented|discovered|said|wrote|created|was|did)/i,
+  // Famous people claims - EXPANDED
+  /(einstein|newton|tesla|edison|shakespeare|mozart|picasso|darwin|galileo|curie|hawking)/i,
+  /\b(failed|invented|discovered|said|wrote|created|born|died)\b.{0,30}(math|class|school|science)/i,
+  /(did you know).{0,50}(einstein|famous|history|actually|really)/i,
+  
+  // "Did you know" fact patterns
+  /did you know\s/i,
+  /fun fact/i,
   
   // Astronomical/scientific facts
   /(moon|sun|earth|mars|planet|star) .{0,30} (is|are|made of|consists of)/i,
@@ -39,8 +48,11 @@ const FACTUAL_OVERRIDE_PATTERNS = [
   /\b\d+(\.\d+)?%\s+(of|increase|decrease|rise|fall|drop)/i,
   
   // Definitive truth claims
-  /(is (actually|really|truly)|the truth is|fact is|did you know)/i,
+  /(is (actually|really|truly)|the truth is|fact is)/i,
   /(visible from space|can be seen from)/i,
+  
+  // Explicit fact-check triggers
+  /(is that true|is this true|is it true|true or false|myth or fact)/i,
 ];
 
 // PERSONAL: Unverifiable internal/relational content (ONLY if no factual override)

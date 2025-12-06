@@ -401,6 +401,9 @@ export async function runMaxPerformancePipeline(input, options = {}) {
     // Human-readable combined message
     loraMessage: generateLoraMessage(analysis, overallCredibility, segmentation.tikTokMode),
     
+    // Siri-optimized spoken response (short, natural, speakable)
+    siriResponse: generateSiriResponse(mode, personalResponse, factCheckResponse, overallCredibility),
+    
     // Action complete marker
     actionComplete: 'Lora AI (Max Performance Edition) executed.'
   };
@@ -480,6 +483,71 @@ function generateFactCheckResponse(factualResults, overallCredibility) {
     },
     totalChecked: factualResults.length
   };
+}
+
+/**
+ * Generate Siri-optimized spoken response
+ * Short, natural, easy to speak aloud
+ */
+function generateSiriResponse(mode, personalResponse, factCheckResponse, overallCredibility) {
+  // Pure personal - warm and brief
+  if (mode === 'personal') {
+    return personalResponse?.message || "That sounds nice! Nothing to fact-check there.";
+  }
+  
+  // Pure fact-check
+  if (mode === 'fact_check' || mode === 'tiktok') {
+    if (overallCredibility >= 80) {
+      return `This checks out! ${overallCredibility} percent accurate.`;
+    } else if (overallCredibility >= 50) {
+      return `Mixed results. About ${overallCredibility} percent accurate. Some parts are true, others aren't.`;
+    } else if (overallCredibility >= 20) {
+      return `Heads up, this is mostly false. Only ${overallCredibility} percent accurate.`;
+    } else {
+      return `This is false. Only ${overallCredibility} percent accurate. I'd double-check this one.`;
+    }
+  }
+  
+  // Mixed mode - acknowledge personal, then give fact-check
+  if (mode === 'mixed') {
+    let siri = "";
+    
+    // Brief warm acknowledgment
+    if (personalResponse?.message) {
+      // Shorten for speech
+      if (personalResponse.message.includes('sweet')) {
+        siri += "That's sweet! ";
+      } else if (personalResponse.message.includes('great time')) {
+        siri += "Sounds fun! ";
+      } else {
+        siri += "Nice! ";
+      }
+    }
+    
+    // Fact-check result
+    siri += "But about those facts: ";
+    
+    if (overallCredibility >= 80) {
+      siri += `they check out, ${overallCredibility} percent accurate.`;
+    } else if (overallCredibility >= 50) {
+      siri += `mixed results, ${overallCredibility} percent accurate.`;
+    } else if (overallCredibility >= 20) {
+      siri += `mostly false, only ${overallCredibility} percent accurate.`;
+    } else {
+      siri += `those are false, only ${overallCredibility} percent accurate.`;
+    }
+    
+    // Add specific callout for worst false claim
+    if (factCheckResponse?.breakdown?.false?.length > 0) {
+      const worst = factCheckResponse.breakdown.false[0];
+      const shortClaim = worst.claim.substring(0, 40);
+      siri += ` "${shortClaim}" is not true.`;
+    }
+    
+    return siri;
+  }
+  
+  return "I couldn't analyze that. Try again?";
 }
 
 function generateLoraMessage(analysis, overallCredibility, tikTokMode) {
