@@ -346,13 +346,33 @@ export async function runMaxPerformancePipeline(input, options = {}) {
   
   // Calculate overall credibility (only for factual segments)
   const factualResults = analysis.filter(a => a.credibility !== null);
+  const personalResults = analysis.filter(a => a.classification === 'PERSONAL');
   const overallCredibility = factualResults.length > 0 ?
     Math.round(factualResults.reduce((sum, a) => sum + a.credibility, 0) / factualResults.length) :
     null;
   
+  // Determine mode
+  const hasPersonal = personalResults.length > 0;
+  const hasFactual = factualResults.length > 0;
+  let mode;
+  
+  if (hasPersonal && hasFactual) {
+    mode = 'mixed'; // Personal + Factual
+  } else if (hasPersonal) {
+    mode = 'personal';
+  } else if (hasFactual) {
+    mode = segmentation.tikTokMode ? 'tiktok' : 'fact_check';
+  } else {
+    mode = 'empty';
+  }
+  
+  // Generate separate responses for mixed mode
+  const personalResponse = hasPersonal ? generatePersonalResponse(personalResults) : null;
+  const factCheckResponse = hasFactual ? generateFactCheckResponse(factualResults, overallCredibility) : null;
+  
   return {
     success: true,
-    mode: segmentation.tikTokMode ? 'tiktok' : 'standard',
+    mode,
     tikTokMode: segmentation.tikTokMode,
     
     // Summary
@@ -366,6 +386,11 @@ export async function runMaxPerformancePipeline(input, options = {}) {
       overallCredibility
     },
     
+    // For mixed mode: separate responses
+    personalResponse,
+    factCheckResponse,
+    factCheckScore: overallCredibility,
+    
     // Detailed analysis
     analysis,
     
@@ -373,7 +398,7 @@ export async function runMaxPerformancePipeline(input, options = {}) {
     timings,
     memory: CONFIG.MEMORY_ENABLED ? getMemoryStats() : null,
     
-    // Human-readable message
+    // Human-readable combined message
     loraMessage: generateLoraMessage(analysis, overallCredibility, segmentation.tikTokMode),
     
     // Action complete marker
@@ -384,6 +409,78 @@ export async function runMaxPerformancePipeline(input, options = {}) {
 // =============================================================================
 // MESSAGE GENERATION
 // =============================================================================
+
+/**
+ * Generate warm response for personal segments
+ */
+function generatePersonalResponse(personalSegments) {
+  const segments = personalSegments.map(p => p.segment.toLowerCase());
+  const allText = segments.join(' ');
+  
+  let response = '';
+  
+  // Detect emotional tone
+  if (allText.includes('happy') || allText.includes('excited') || allText.includes('love')) {
+    response = "aww that's so sweet! sounds like you're having a great time 😊";
+  } else if (allText.includes('sad') || allText.includes('upset') || allText.includes('angry')) {
+    response = "sending good vibes your way 💙 hope things get better";
+  } else if (allText.includes('girlfriend') || allText.includes('boyfriend') || allText.includes('partner')) {
+    response = "that's adorable! relationship goals ✨";
+  } else if (allText.includes('pizza') || allText.includes('food') || allText.includes('ate') || allText.includes('bought me')) {
+    response = "nice! sounds like a good time 🍕";
+  } else if (allText.includes('mom') || allText.includes('dad') || allText.includes('family')) {
+    response = "family moments are the best 💕";
+  } else {
+    response = "thanks for sharing! 💭";
+  }
+  
+  return {
+    message: response,
+    segments: personalSegments.map(p => p.segment),
+    tone: 'warm'
+  };
+}
+
+/**
+ * Generate fact-check response for factual segments
+ */
+function generateFactCheckResponse(factualResults, overallCredibility) {
+  const trueClaims = factualResults.filter(f => f.credibility >= 70);
+  const falseClaims = factualResults.filter(f => f.credibility < 30);
+  const mixedClaims = factualResults.filter(f => f.credibility >= 30 && f.credibility < 70);
+  
+  let verdict;
+  let message;
+  
+  if (overallCredibility >= 80) {
+    verdict = 'TRUE';
+    message = "these facts check out! ✅";
+  } else if (overallCredibility >= 60) {
+    verdict = 'MOSTLY_TRUE';
+    message = "mostly accurate with some caveats";
+  } else if (overallCredibility >= 40) {
+    verdict = 'MIXED';
+    message = "mixed results — some true, some false ⚠️";
+  } else if (overallCredibility >= 20) {
+    verdict = 'MOSTLY_FALSE';
+    message = "most of these don't hold up ❌";
+  } else {
+    verdict = 'FALSE';
+    message = "these claims are false 🚫";
+  }
+  
+  return {
+    score: overallCredibility,
+    verdict,
+    message,
+    breakdown: {
+      true: trueClaims.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation })),
+      false: falseClaims.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation })),
+      mixed: mixedClaims.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation }))
+    },
+    totalChecked: factualResults.length
+  };
+}
 
 function generateLoraMessage(analysis, overallCredibility, tikTokMode) {
   const factual = analysis.filter(a => a.classification === 'FACTUAL');
