@@ -38,6 +38,7 @@ import {
 import { runUnifiedPipeline } from './services/loraUnified.js';
 import { runTieredPipeline } from './services/loraTiered.js';
 import { runOptimizedPipeline } from './services/loraOptimized.js';
+import { generateResponse } from './services/loraResponseGenerator.js';
 import logger from './services/logger.js';
 
 dotenv.config();
@@ -138,13 +139,24 @@ app.post('/api/check', async (req, res) => {
         // Fallback if interpretation fails
       }
       
+      // Use interpretation reaction, result loraMessage, or generate dynamically
+      let personalMessage = interpretation?.reaction || result.loraMessage;
+      if (!personalMessage) {
+        const dynamicPersonal = await generateResponse({
+          type: 'personal_interpretation',
+          interpretation,
+          reason: result.reason
+        });
+        personalMessage = dynamicPersonal.loraMessage;
+      }
+      
       return res.json({
         success: true,
         mode: 'personal',
         claim: text,
         score: null,
         loraVerdict: null,
-        loraMessage: interpretation?.reaction || result.loraMessage || "this feels personal, not something to fact-check",
+        loraMessage: personalMessage,
         reason: result.reason,
         interpretation,
         latency: result.latency,
@@ -314,8 +326,8 @@ app.post('/api/check-image', async (req, res) => {
 
     // Step 2: If we have a main claim, fact-check it with all AIs
     let loraVerdict = 'UNKNOWN';
-    let loraMessage = "not totally sure about this one tbh, getting mixed results";
     let sources = getSources('UNKNOWN', '');
+    let consensus = null;
 
     if (extracted.mainClaim) {
       // Run through multi-AI consensus
@@ -339,29 +351,30 @@ app.post('/api/check-image', async (req, res) => {
       });
 
       if (responses.length > 0) {
-        const consensus = aggregateVerdicts(responses);
-        
-        if (consensus.verdict === 'false') {
-          loraVerdict = 'FALSE';
-          loraMessage = "looked at your screenshot — yeah that's not true";
-        } else if (consensus.verdict === 'true') {
-          loraVerdict = 'TRUE';
-          loraMessage = "checked your screenshot and yep, that's actually legit!";
-        } else {
-          loraMessage = "looked at the screenshot but honestly I'm not sure on this one";
-        }
-        
+        consensus = aggregateVerdicts(responses);
+        loraVerdict = consensus.verdict?.toUpperCase() || 'UNKNOWN';
         sources = getSources(loraVerdict, extracted.mainClaim);
       }
     }
+
+    // Generate response dynamically (no hardcoding)
+    const dynamicResponse = await generateResponse({
+      type: 'image_analysis',
+      claim: extracted.mainClaim,
+      verdict: loraVerdict,
+      consensus,
+      context: extracted.context,
+      allClaims: extracted.claims
+    });
 
     console.log(`\n🎯 Lora Verdict: ${loraVerdict}`);
 
     res.json({
       success: true,
-      claim: extracted.mainClaim || 'No clear claim found',
+      claim: extracted.mainClaim || null,
       loraVerdict: loraVerdict,
-      loraMessage: loraMessage,
+      loraMessage: dynamicResponse.loraMessage,
+      siriResponse: dynamicResponse.siriResponse,
       sources: sources,
       imageAnalysis: {
         context: extracted.context,
@@ -402,12 +415,21 @@ app.post('/api/check-url', async (req, res) => {
     console.log(`   Claims found: ${article.claims?.length || 0}`);
 
     if (!article.claims || article.claims.length === 0) {
+      // Generate response for no claims found
+      const emptyResponse = await generateResponse({
+        type: 'url_analysis',
+        url,
+        title: article.title,
+        claimsFound: 0
+      });
+      
       return res.json({
         success: true,
         url: url,
         title: article.title,
         loraVerdict: 'UNKNOWN',
-        loraMessage: "couldn't find any specific claims to fact-check in this article",
+        loraMessage: emptyResponse.loraMessage,
+        siriResponse: emptyResponse.siriResponse,
         claims: []
       });
     }
@@ -436,21 +458,23 @@ app.post('/api/check-url', async (req, res) => {
     });
 
     let loraVerdict = 'UNKNOWN';
-    let loraMessage = "couldn't verify the claims in this article";
+    let consensus = null;
 
     if (responses.length > 0) {
-      const consensus = aggregateVerdicts(responses);
-      
-      if (consensus.verdict === 'false') {
-        loraVerdict = 'FALSE';
-        loraMessage = "checked this article and there's some stuff in here that's not true";
-      } else if (consensus.verdict === 'true') {
-        loraVerdict = 'TRUE';
-        loraMessage = "this article checks out, the main claims seem legit";
-      } else {
-        loraMessage = "mixed results on this one, some claims are hard to verify";
-      }
+      consensus = aggregateVerdicts(responses);
+      loraVerdict = consensus.verdict?.toUpperCase() || 'UNKNOWN';
     }
+
+    // Generate response dynamically (no hardcoding)
+    const dynamicResponse = await generateResponse({
+      type: 'url_analysis',
+      url,
+      title: article.title,
+      mainClaim,
+      verdict: loraVerdict,
+      consensus,
+      allClaims: article.claims
+    });
 
     console.log(`\n🎯 Lora Verdict: ${loraVerdict}`);
 
@@ -460,7 +484,8 @@ app.post('/api/check-url', async (req, res) => {
       title: article.title,
       mainClaim: mainClaim,
       loraVerdict: loraVerdict,
-      loraMessage: loraMessage,
+      loraMessage: dynamicResponse.loraMessage,
+      siriResponse: dynamicResponse.siriResponse,
       allClaims: article.claims,
       sources: getSources(loraVerdict, mainClaim)
     });
@@ -596,9 +621,17 @@ app.post('/analyze-comments', async (req, res) => {
     console.log(`   Analysis complete!`);
     console.log(`   Overall summary: ${analysis.overallSummary?.substring(0, 50)}...`);
 
+    // Generate response dynamically
+    const dynamicResponse = await generateResponse({
+      type: 'comment_analysis',
+      commentCount: comments.length,
+      analysis
+    });
+
     res.json({
       success: true,
-      message: "ok here's what I got from those comments",
+      message: dynamicResponse.loraMessage,
+      siriResponse: dynamicResponse.siriResponse,
       analysis: analysis,
       commentCount: comments.length
     });
@@ -606,8 +639,8 @@ app.post('/analyze-comments', async (req, res) => {
   } catch (error) {
     console.error('Comment analysis error:', error);
     res.status(500).json(errorResponse(
-      'had trouble with those comments, try again?',
-      { error: error.message }
+      null, // No hardcoded message
+      { error: error.message, errorType: 'comment_analysis_error' }
     ));
   }
 });
@@ -644,12 +677,20 @@ app.post('/interpret', async (req, res) => {
       console.log(`   Vibe: ${interpretation.vibe}`);
       console.log(`   Emotion: ${interpretation.emotion}`);
 
+      // Generate response dynamically
+      const dynamicResponse = await generateResponse({
+        type: 'personal_interpretation',
+        interpretation,
+        intent: intentResult.intent
+      });
+
       res.json({
         success: true,
         type: 'personal',
         interpretation: interpretation,
         intent: intentResult,
-        message: "here's my take on that — this one feels personal"
+        message: dynamicResponse.loraMessage,
+        siriResponse: dynamicResponse.siriResponse
       });
 
     } else if (needsFactCheck(intentResult.intent)) {
@@ -661,12 +702,20 @@ app.post('/interpret', async (req, res) => {
       console.log(`   Tone: ${interpretation.tone}`);
       console.log(`   Conflict: ${interpretation.conflict?.detected ? 'Yes' : 'No'}`);
 
+      // Generate response dynamically
+      const dynamicResponse = await generateResponse({
+        type: 'factual_interpretation',
+        interpretation,
+        intent: intentResult.intent
+      });
+
       res.json({
         success: true,
         type: 'factual',
         interpretation: interpretation,
         intent: intentResult,
-        message: "ok here's my read on this"
+        message: dynamicResponse.loraMessage,
+        siriResponse: dynamicResponse.siriResponse
       });
 
     } else {
@@ -675,12 +724,20 @@ app.post('/interpret', async (req, res) => {
       
       const interpretation = await personalInterpretation(text);
 
+      // Generate response dynamically
+      const dynamicResponse = await generateResponse({
+        type: 'unclear_interpretation',
+        interpretation,
+        intent: intentResult.intent
+      });
+
       res.json({
         success: true,
         type: intentResult.intent,
         interpretation: interpretation,
         intent: intentResult,
-        message: "not totally sure what this is about, but here's my best take"
+        message: dynamicResponse.loraMessage,
+        siriResponse: dynamicResponse.siriResponse
       });
     }
 
@@ -692,16 +749,23 @@ app.post('/interpret', async (req, res) => {
       console.log(`   Fallback: trying personal interpretation`);
       const fallbackInterpretation = await personalInterpretation(text);
       
+      // Generate fallback response dynamically
+      const fallbackResponse = await generateResponse({
+        type: 'fallback_interpretation',
+        interpretation: fallbackInterpretation
+      });
+      
       res.json({
         success: true,
         type: 'personal',
         interpretation: fallbackInterpretation,
-        message: "not totally sure what this is about, but here's my best guess"
+        message: fallbackResponse.loraMessage,
+        siriResponse: fallbackResponse.siriResponse
       });
     } catch (fallbackError) {
       res.status(500).json(errorResponse(
-        'couldn\'t figure that one out, try sending it again?',
-        { error: error.message }
+        null,
+        { error: error.message, errorType: 'interpretation_error' }
       ));
     }
   }
@@ -740,10 +804,18 @@ app.post('/analyze', async (req, res) => {
 
       const analysis = await analyzeComments(input);
       
+      // Generate response dynamically
+      const dynamicResponse = await generateResponse({
+        type: 'comment_analysis',
+        commentCount: input.length,
+        analysis
+      });
+      
       res.json({
         success: true,
         type: 'comments',
-        message: "here's what I got from those comments",
+        message: dynamicResponse.loraMessage,
+        siriResponse: dynamicResponse.siriResponse,
         analysis: analysis,
         commentCount: input.length
       });
@@ -826,10 +898,18 @@ app.post('/analyze', async (req, res) => {
     if (typeof input === 'string') {
       try {
         const fallback = await personalInterpretation(input);
+        
+        // Generate fallback response dynamically
+        const fallbackResponse = await generateResponse({
+          type: 'fallback_interpretation',
+          interpretation: fallback
+        });
+        
         res.json({
           success: true,
           type: 'personal',
-          message: "not totally sure what this is, but here's my take",
+          message: fallbackResponse.loraMessage,
+          siriResponse: fallbackResponse.siriResponse,
           interpretation: fallback
         });
         return;
@@ -839,8 +919,8 @@ app.post('/analyze', async (req, res) => {
     }
     
     res.status(500).json(errorResponse(
-      'something broke, try again?',
-      { error: error.message }
+      null,
+      { error: error.message, errorType: 'analysis_error' }
     ));
   }
 });
