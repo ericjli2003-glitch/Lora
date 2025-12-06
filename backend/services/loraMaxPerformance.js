@@ -387,9 +387,14 @@ export async function runMaxPerformancePipeline(input, options = {}) {
     mode = 'empty';
   }
   
-  // Generate separate responses for mixed mode
-  const personalResponse = hasPersonal ? generatePersonalResponse(personalResults) : null;
-  const factCheckResponse = hasFactual ? generateFactCheckResponse(factualResults, overallCredibility, harmfulResults) : null;
+  // ===================
+  // STEP 5: GENERATE DYNAMIC RESPONSE (LLM-based, no templates)
+  // ===================
+  const responseStart = performance.now();
+  const dynamicResponse = await generateDynamicResponse(analysis, input);
+  timings.responseGenMs = (performance.now() - responseStart).toFixed(2);
+  
+  timings.totalMs = (performance.now() - pipelineStart).toFixed(2);
   
   return {
     success: true,
@@ -411,13 +416,12 @@ export async function runMaxPerformancePipeline(input, options = {}) {
     // Harmful content warning
     harmfulWarning: hasHarmful ? {
       detected: true,
-      message: "⚠️ This contains potentially harmful misinformation. Please verify with trusted sources.",
       claims: harmfulResults.map(h => h.segment)
     } : null,
     
-    // For mixed mode: separate responses
-    personalResponse,
-    factCheckResponse,
+    // Dynamic LLM-generated responses (no hardcoding)
+    personalResponse: dynamicResponse.personalResponse,
+    factCheckResponse: dynamicResponse.factCheckResponse,
     factCheckScore: overallCredibility,
     
     // Detailed analysis
@@ -427,14 +431,9 @@ export async function runMaxPerformancePipeline(input, options = {}) {
     timings,
     memory: CONFIG.MEMORY_ENABLED ? getMemoryStats() : null,
     
-    // Human-readable combined message
-    loraMessage: generateLoraMessage(analysis, overallCredibility, segmentation.tikTokMode),
-    
-    // Siri-optimized spoken response (short, natural, speakable)
-    siriResponse: generateSiriResponse(mode, personalResponse, factCheckResponse, overallCredibility, hasHarmful ? {
-      detected: true,
-      claims: harmfulResults.map(h => h.segment)
-    } : null),
+    // LLM-generated messages (dynamic, not templated)
+    loraMessage: dynamicResponse.overallMessage,
+    siriResponse: dynamicResponse.siriResponse,
     
     // Action complete marker
     actionComplete: 'Lora AI (Max Performance Edition) executed.'
@@ -446,237 +445,61 @@ export async function runMaxPerformancePipeline(input, options = {}) {
 // =============================================================================
 
 /**
- * Generate warm response for personal segments
+ * Generate ALL responses dynamically using LLM
+ * No hardcoded templates - fully semantic
  */
-function generatePersonalResponse(personalSegments) {
-  const segments = personalSegments.map(p => p.segment.toLowerCase());
-  const allText = segments.join(' ');
-  
-  let response = '';
-  
-  // Detect emotional tone
-  if (allText.includes('happy') || allText.includes('excited') || allText.includes('love')) {
-    response = "aww that's so sweet! sounds like you're having a great time 😊";
-  } else if (allText.includes('sad') || allText.includes('upset') || allText.includes('angry')) {
-    response = "sending good vibes your way 💙 hope things get better";
-  } else if (allText.includes('girlfriend') || allText.includes('boyfriend') || allText.includes('partner')) {
-    response = "that's adorable! relationship goals ✨";
-  } else if (allText.includes('pizza') || allText.includes('food') || allText.includes('ate') || allText.includes('bought me')) {
-    response = "nice! sounds like a good time 🍕";
-  } else if (allText.includes('mom') || allText.includes('dad') || allText.includes('family')) {
-    response = "family moments are the best 💕";
-  } else {
-    response = "thanks for sharing! 💭";
+async function generateDynamicResponse(analysis, originalInput) {
+  try {
+    const openai = await getOpenAI();
+    
+    const prompt = `You are Lora, a warm and helpful AI assistant. Based on this analysis, generate a natural response.
+
+ORIGINAL INPUT: "${originalInput}"
+
+ANALYSIS:
+${JSON.stringify(analysis, null, 2)}
+
+Generate a JSON response with:
+1. "personalResponse" - If there's personal content, respond warmly and naturally to it (null if no personal content)
+2. "factCheckResponse" - If there are factual claims, summarize the fact-check results naturally (null if no factual content)
+3. "siriResponse" - A SHORT (1-2 sentences max) spoken response for Siri. Must be natural speech, not robotic. Include the credibility percentage if there are factual claims.
+4. "overallMessage" - A friendly combined message that addresses both personal and factual parts naturally
+
+RULES:
+- Be warm, friendly, conversational
+- If harmful content detected, prioritize warning about it
+- Don't be robotic or templated
+- Siri response must be speakable (no emoji, short)
+- Reference specific claims when relevant
+
+Respond in JSON only.`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are Lora, a warm AI assistant. Generate natural, friendly responses. Output JSON only.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 800,
+      response_format: { type: 'json_object' }
+    });
+
+    return JSON.parse(response.choices[0].message.content);
+  } catch (error) {
+    console.error('[DynamicResponse] Error:', error.message);
+    // Minimal fallback
+    return {
+      personalResponse: null,
+      factCheckResponse: null,
+      siriResponse: "I analyzed that for you. Check the details in the app.",
+      overallMessage: "Here's what I found in my analysis."
+    };
   }
-  
-  return {
-    message: response,
-    segments: personalSegments.map(p => p.segment),
-    tone: 'warm'
-  };
 }
 
-/**
- * Generate fact-check response for factual segments
- */
-function generateFactCheckResponse(factualResults, overallCredibility, harmfulResults = []) {
-  const trueClaims = factualResults.filter(f => f.credibility >= 70);
-  const falseClaims = factualResults.filter(f => f.credibility < 30);
-  const mixedClaims = factualResults.filter(f => f.credibility >= 30 && f.credibility < 70);
-  
-  let verdict;
-  let message;
-  
-  // Priority: harmful content
-  if (harmfulResults.length > 0) {
-    verdict = 'HARMFUL';
-    message = "⚠️ contains potentially harmful misinformation";
-  } else if (overallCredibility >= 80) {
-    verdict = 'TRUE';
-    message = "these facts check out! ✅";
-  } else if (overallCredibility >= 60) {
-    verdict = 'MOSTLY_TRUE';
-    message = "mostly accurate with some caveats";
-  } else if (overallCredibility >= 40) {
-    verdict = 'MIXED';
-    message = "mixed results — some true, some false ⚠️";
-  } else if (overallCredibility >= 20) {
-    verdict = 'MOSTLY_FALSE';
-    message = "most of these don't hold up ❌";
-  } else {
-    verdict = 'FALSE';
-    message = "these claims are false 🚫";
-  }
-  
-  return {
-    score: overallCredibility,
-    verdict,
-    message,
-    breakdown: {
-      true: trueClaims.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation })),
-      false: falseClaims.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation })),
-      mixed: mixedClaims.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation })),
-      harmful: harmfulResults.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation }))
-    },
-    totalChecked: factualResults.length
-  };
-}
-
-/**
- * Generate Siri-optimized spoken response
- * Short, natural, easy to speak aloud
- */
-function generateSiriResponse(mode, personalResponse, factCheckResponse, overallCredibility, harmfulWarning) {
-  // HARMFUL - Priority warning
-  if (mode === 'harmful_detected' || harmfulWarning?.detected) {
-    let siri = "Warning! This contains dangerous misinformation. ";
-    if (harmfulWarning?.claims?.[0]) {
-      const claim = harmfulWarning.claims[0].substring(0, 50);
-      siri += `"${claim}" could be harmful. Please check trusted sources.`;
-    } else {
-      siri += "Please verify this with a doctor or trusted source before acting on it.";
-    }
-    return siri;
-  }
-  
-  // Pure personal - warm and brief
-  if (mode === 'personal') {
-    return personalResponse?.message || "That sounds nice! Nothing to fact-check there.";
-  }
-  
-  // Pure fact-check
-  if (mode === 'fact_check' || mode === 'tiktok') {
-    if (overallCredibility >= 80) {
-      return `This checks out! ${overallCredibility} percent accurate.`;
-    } else if (overallCredibility >= 50) {
-      return `Mixed results. About ${overallCredibility} percent accurate. Some parts are true, others aren't.`;
-    } else if (overallCredibility >= 20) {
-      return `Heads up, this is mostly false. Only ${overallCredibility} percent accurate.`;
-    } else {
-      return `This is false. Only ${overallCredibility} percent accurate. I'd double-check this one.`;
-    }
-  }
-  
-  // Mixed mode - acknowledge personal, then give fact-check
-  if (mode === 'mixed') {
-    let siri = "";
-    
-    // Brief warm acknowledgment
-    if (personalResponse?.message) {
-      // Shorten for speech
-      if (personalResponse.message.includes('sweet')) {
-        siri += "That's sweet! ";
-      } else if (personalResponse.message.includes('great time')) {
-        siri += "Sounds fun! ";
-      } else {
-        siri += "Nice! ";
-      }
-    }
-    
-    // Fact-check result
-    siri += "But about those facts: ";
-    
-    if (overallCredibility >= 80) {
-      siri += `they check out, ${overallCredibility} percent accurate.`;
-    } else if (overallCredibility >= 50) {
-      siri += `mixed results, ${overallCredibility} percent accurate.`;
-    } else if (overallCredibility >= 20) {
-      siri += `mostly false, only ${overallCredibility} percent accurate.`;
-    } else {
-      siri += `those are false, only ${overallCredibility} percent accurate.`;
-    }
-    
-    // Add specific callout for worst false claim
-    if (factCheckResponse?.breakdown?.false?.length > 0) {
-      const worst = factCheckResponse.breakdown.false[0];
-      const shortClaim = worst.claim.substring(0, 40);
-      siri += ` "${shortClaim}" is not true.`;
-    }
-    
-    return siri;
-  }
-  
-  return "I couldn't analyze that. Try again?";
-}
-
-function generateLoraMessage(analysis, overallCredibility, tikTokMode) {
-  const factual = analysis.filter(a => a.classification === 'FACTUAL');
-  const nonsense = analysis.filter(a => a.classification === 'NONSENSE');
-  const personal = analysis.filter(a => a.classification === 'PERSONAL');
-  const checkable = [...factual, ...nonsense];
-  
-  let message = '';
-  
-  // Handle mixed content (personal + factual)
-  const isMixed = personal.length > 0 && checkable.length > 0;
-  
-  if (isMixed) {
-    // Warm response to personal parts first
-    message += "💭 love the personal vibes! ";
-    
-    if (personal.some(p => p.segment.toLowerCase().includes('happy') || 
-                          p.segment.toLowerCase().includes('excited') ||
-                          p.segment.toLowerCase().includes('love'))) {
-      message += "sounds like you're having a good time 😊 ";
-    } else if (personal.some(p => p.segment.toLowerCase().includes('girlfriend') || 
-                                  p.segment.toLowerCase().includes('boyfriend') ||
-                                  p.segment.toLowerCase().includes('pizza'))) {
-      message += "that's sweet! ";
-    }
-    
-    message += "\n\nbut you also dropped some facts, so let me check those:\n\n";
-  } else if (tikTokMode) {
-    message += '🎵 detected chaotic tiktok-style content — let me break this down:\n\n';
-  }
-  
-  // If ALL personal, give warm response
-  if (checkable.length === 0) {
-    message = "looks like this is all personal/emotional content — nothing to fact-check here! ";
-    if (personal.some(p => p.segment.toLowerCase().includes('happy'))) {
-      message += "glad you're feeling good though 💭✨";
-    } else {
-      message += "hope you're doing well 💭";
-    }
-    return message;
-  }
-  
-  // Fact-check results summary
-  if (overallCredibility !== null) {
-    if (overallCredibility >= 80) {
-      message += `✅ fact-check result: ${overallCredibility}% credible — the facts check out!`;
-    } else if (overallCredibility >= 50) {
-      message += `⚠️ fact-check result: ${overallCredibility}% credible — mixed results, some true some not`;
-    } else if (overallCredibility >= 20) {
-      message += `❌ fact-check result: ${overallCredibility}% credible — most of this doesn't hold up`;
-    } else {
-      message += `🚫 fact-check result: ${overallCredibility}% credible — yeah these claims are false`;
-    }
-  }
-  
-  // Add specific callouts for notable false claims
-  const falseClaims = checkable.filter(c => c.credibility !== null && c.credibility < 30);
-  if (falseClaims.length > 0) {
-    message += `\n\n🔍 heads up on these:`;
-    for (const claim of falseClaims.slice(0, 3)) {
-      message += `\n   • "${claim.segment.substring(0, 50)}${claim.segment.length > 50 ? '...' : ''}" — ${claim.explanation || 'this is false'}`;
-    }
-  }
-  
-  // Add specific callouts for true claims
-  const trueClaims = checkable.filter(c => c.credibility !== null && c.credibility >= 70);
-  if (trueClaims.length > 0 && falseClaims.length > 0) {
-    message += `\n\n✓ but these are legit:`;
-    for (const claim of trueClaims.slice(0, 2)) {
-      message += `\n   • "${claim.segment.substring(0, 50)}${claim.segment.length > 50 ? '...' : ''}"`;
-    }
-  }
-  
-  if (nonsense.length > 0 && !isMixed) {
-    message += `\n\n🦄 found ${nonsense.length} fantastical claim(s) that can't be true`;
-  }
-  
-  return message;
-}
+// All response generation is now done dynamically by generateDynamicResponse()
+// No hardcoded message templates
 
 // =============================================================================
 // EXPORTS
