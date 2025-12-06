@@ -36,6 +36,7 @@ import {
   MAX_PERFORMANCE_CONFIG 
 } from './services/loraMaxPerformance.js';
 import { runUnifiedPipeline } from './services/loraUnified.js';
+import { runTieredPipeline } from './services/loraTiered.js';
 import logger from './services/logger.js';
 
 dotenv.config();
@@ -1228,15 +1229,18 @@ function getSources(verdict, claim) {
 }
 
 // =============================================================================
-// POST /api/check-max - ULTRA-FAST Unified Pipeline (Single LLM Call)
+// POST /api/check-max - Tiered Fact-Checking Pipeline
+// FREE: Single model (GPT-4o-mini) ~1-2s
+// PREMIUM: Multi-model consensus (GPT-4 + Claude + Perplexity) ~3-4s
 // =============================================================================
 
 app.post('/api/check-max', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const { text, input } = req.body;
+    const { text, input, premium } = req.body;
     const inputText = text || input;
+    const isPremium = premium === true;
     
     if (!inputText || typeof inputText !== 'string' || inputText.trim().length === 0) {
       return res.status(400).json({
@@ -1245,8 +1249,8 @@ app.post('/api/check-max', async (req, res) => {
       });
     }
     
-    // Run UNIFIED pipeline (single LLM call - ~1-2s instead of 4-5s)
-    const result = await runUnifiedPipeline(inputText);
+    // Run TIERED pipeline
+    const result = await runTieredPipeline(inputText, { premium: isPremium });
     
     if (!result.success) {
       return res.status(400).json({
@@ -1259,6 +1263,8 @@ app.post('/api/check-max', async (req, res) => {
     res.json({
       success: true,
       mode: result.mode,
+      tier: result.tier,
+      models: result.models,
       
       // Summary
       summary: result.summary,
@@ -1270,16 +1276,18 @@ app.post('/api/check-max', async (req, res) => {
       loraMessage: result.loraMessage,
       siriResponse: result.siriResponse,
       
+      // Premium: model consensus details
+      modelConsensus: result.modelConsensus,
+      
       // Harmful warning
       harmfulWarning: result.harmfulWarning,
       
       // Detailed segments
-      segments: result.analysis,
+      segments: result.segments,
       
       // Performance
       latency: {
-        pipelineMs: result.timings?.totalMs,
-        llmCalls: result.timings?.llmCalls || 1,
+        pipelineMs: result.latencyMs,
         totalMs: Date.now() - startTime
       },
       
