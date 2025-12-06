@@ -12,7 +12,7 @@
 import { segmentInput, detectTikTokMode } from './segmenter.js';
 import { classifyBatch, getCheckableSegments } from './claimClassifier.js';
 import { batchLookup, batchStore, getMemoryStats } from './claimMemory.js';
-import { logger } from './logger.js';
+import logger from './logger.js';
 
 // =============================================================================
 // CONFIGURATION
