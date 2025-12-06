@@ -14,66 +14,103 @@
 // CLASSIFICATION PATTERNS
 // =============================================================================
 
-// FACTUAL OVERRIDE: These patterns ALWAYS trigger fact-checking regardless of personal markers
+// FACTUAL OVERRIDE: Pattern-based detection of CLAIM STRUCTURES (not specific entities)
+// The AI models will fact-check the actual content - we just identify WHAT needs checking
 const FACTUAL_OVERRIDE_PATTERNS = [
-  // Scientific claims
-  /(scientist|study|research|proven|confirmed|discovered|evidence shows)/i,
-  /(causes?|cures?|prevents?|treats?) .{3,30}(cancer|covid|disease|illness|virus)/i,
+  // ===========================================
+  // CLAIM STRUCTURE: "X is/are in Y" (location)
+  // ===========================================
+  /\b(is|are|was|were)\s+(in|located in|based in|built in|found in)\s+[A-Z]/i,
+  /\b(the|a)\s+\w+\s+(is|are)\s+(in|at|on)\s+[A-Z]/i,
   
-  // Health misinformation red flags
-  /(vaccine|vaccination|ivermectin|hydroxychloroquine|bleach|miracle cure)/i,
-  /(drinking|injecting|taking) .{0,20} (cures?|kills?|prevents?)/i,
+  // ===========================================
+  // CLAIM STRUCTURE: "X [action verb] Y" (historical/achievement)
+  // ===========================================
+  /\b(invented|discovered|created|founded|built|wrote|composed|painted|designed)\b/i,
+  /\b(failed|passed|graduated|dropped out|flunked)\b.{0,20}\b(math|school|class|college|university|exam|test)/i,
+  /\b(born|died|lived|ruled|reigned)\b.{0,20}\b(in|on|at|during)\b/i,
   
-  // Geographic/historical claims - EXPANDED
-  /(tower|wall|building|monument|landmark|statue|bridge|palace|castle).{0,20}(is |are |in |located)/i,
-  /(eiffel|big ben|statue of liberty|great wall|taj mahal|colosseum|pyramids?)/i,
-  /\b(london|paris|tokyo|new york|rome|berlin|moscow|beijing|cairo)\b.{0,20}(is|has|was)/i,
-  /(is|are|was|were) (in|the capital of|located in|built in|founded in)/i,
-  /(capital of|located in|built in|founded in|is in)\s+\w+/i,
+  // ===========================================
+  // CLAIM STRUCTURE: "X causes/cures/prevents Y" (causal)
+  // ===========================================
+  /\b(causes?|cures?|prevents?|treats?|kills?|heals?)\b.{0,30}\b(cancer|disease|illness|virus|infection|covid|death)/i,
+  /\b(drinking|eating|taking|injecting|using)\b.{0,20}\b(cures?|kills?|prevents?|causes?)/i,
   
-  // Famous people claims - EXPANDED
-  /(einstein|newton|tesla|edison|shakespeare|mozart|picasso|darwin|galileo|curie|hawking)/i,
-  /\b(failed|invented|discovered|said|wrote|created|born|died)\b.{0,30}(math|class|school|science)/i,
-  /(did you know).{0,50}(einstein|famous|history|actually|really)/i,
+  // ===========================================
+  // CLAIM STRUCTURE: "X is made of Y" (composition)
+  // ===========================================
+  /\b(is|are)\s+(made of|composed of|consists of|contains?)\b/i,
   
-  // "Did you know" fact patterns
-  /did you know\s/i,
-  /fun fact/i,
+  // ===========================================
+  // CLAIM STRUCTURE: "X is the [superlative]" (rankings)
+  // ===========================================
+  /\b(is|are|was|were)\s+the\s+(largest|smallest|tallest|oldest|youngest|first|last|only|fastest|slowest|richest|poorest|most|least)/i,
   
-  // Astronomical/scientific facts
-  /(moon|sun|earth|mars|planet|star) .{0,30} (is|are|made of|consists of)/i,
-  /(flat earth|round earth|globe|space|nasa)/i,
+  // ===========================================
+  // CLAIM STRUCTURE: Fact introducers
+  // ===========================================
+  /\bdid you know\b/i,
+  /\bfun fact\b/i,
+  /\bactually,?\s/i,
+  /\bin fact\b/i,
+  /\bthe truth is\b/i,
   
-  // Statistics and numbers
-  /\b\d+(\.\d+)?%\s+(of|increase|decrease|rise|fall|drop)/i,
+  // ===========================================
+  // CLAIM STRUCTURE: Statistics & Numbers
+  // ===========================================
+  /\b\d+(\.\d+)?\s*%/,  // Any percentage
+  /\b(million|billion|trillion|thousand)\b/i,
+  /\b(studies?|research|data|evidence|scientists?|experts?)\s+(show|prove|confirm|found|suggest)/i,
   
-  // Definitive truth claims
-  /(is (actually|really|truly)|the truth is|fact is)/i,
-  /(visible from space|can be seen from)/i,
+  // ===========================================
+  // CLAIM STRUCTURE: Scientific assertions
+  // ===========================================
+  /\b(proven|confirmed|disproven|debunked|verified)\b/i,
+  /\b(according to|based on)\s+(research|studies|science|data|experts?)/i,
   
-  // Explicit fact-check triggers
-  /(is that true|is this true|is it true|true or false|myth or fact)/i,
+  // ===========================================
+  // CLAIM STRUCTURE: Definitive external world claims
+  // ===========================================
+  /\b(is|are|was|were)\s+(true|false|real|fake|a myth|a hoax|a lie)\b/i,
+  /\b(can|cannot|can't)\s+(be seen|be heard|survive|live|exist)\b/i,
+  
+  // ===========================================
+  // CLAIM STRUCTURE: "The [noun] is [claim]" (definitive statements)
+  // ===========================================
+  /^the\s+[a-z]+\s+(is|are|was|were)\s+/i,
 ];
 
-// PERSONAL: Unverifiable internal/relational content (ONLY if no factual override)
+// PERSONAL: Pattern-based detection of PERSONAL/SUBJECTIVE content
+// Only matches if NO factual override triggered
 const PERSONAL_PATTERNS = [
-  // First-person feelings ONLY (not claims about the world)
-  /^i('m| am) (so )?(happy|sad|excited|tired|hungry|bored|confused)$/i,
-  /^i feel (so )?(happy|sad|good|bad|great|terrible)/i,
+  // ===========================================
+  // STRUCTURE: "I feel/am [emotion]" (internal state)
+  // ===========================================
+  /^i('m| am| feel| felt)\s+(so\s+)?(happy|sad|excited|tired|hungry|bored|confused|nervous|anxious|grateful|blessed|lucky|angry|frustrated|overwhelmed)/i,
+  /\bi('m| am) feeling\b/i,
   
-  // Pure personal anecdotes without factual claims
-  /^(my|our) (girlfriend|boyfriend|wife|husband|partner|friend|mom|dad) (bought|gave|made|sent|texted|called|hugged|kissed)/i,
+  // ===========================================
+  // STRUCTURE: "My [person] [personal action]" (relational)
+  // ===========================================
+  /^my\s+\w+\s+(bought|gave|made|sent|texted|called|told|asked|hugged|kissed|surprised|visited|cooked|baked)\s+(me|us)\b/i,
+  /^(my|our)\s+(girlfriend|boyfriend|wife|husband|partner|friend|mom|dad|family|cat|dog|boss)\b/i,
   
-  // Pure opinions without external claims
-  /^(in my opinion|imo|personally,? i think)$/i,
-  /^i (love|hate|like|prefer) (this|that|it)$/i,
+  // ===========================================
+  // STRUCTURE: "I [subjective verb]" (opinions/preferences)
+  // ===========================================
+  /^i\s+(love|hate|like|prefer|want|need|wish|hope|think|believe|feel like)\s+(this|that|it|my|the)\b/i,
+  /^(in my opinion|imo|personally|tbh|honestly)\b/i,
   
-  // Short reactions ONLY
-  /^(lol|lmao|haha|omg|wtf|bruh|same|mood|slay|periodt|yass|oof)$/i,
-  /^[😂🤣💀😭❤️🔥👀✨🎉💯]+$/,
+  // ===========================================
+  // STRUCTURE: Pure reactions (no claim content)
+  // ===========================================
+  /^(lol|lmao|haha|hehe|omg|wtf|bruh|same|mood|slay|periodt|yass|oof|wow|nice|cool|damn|yikes|ugh)$/i,
+  /^[\u{1F300}-\u{1F9FF}\s]+$/u,  // Pure emoji
   
-  // Questions that are just asking
-  /^(what do you think|thoughts\?|anyone else feel this|am i the only one)$/i,
+  // ===========================================
+  // STRUCTURE: "Today/Yesterday I [personal action]"
+  // ===========================================
+  /^(today|yesterday|last night|this morning)\s+(i|we|my)\s+(went|saw|ate|met|had|got|did|tried|watched|played|hung out)/i,
 ];
 
 // NONSENSE: Fantastical/impossible claims
