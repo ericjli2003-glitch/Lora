@@ -1,279 +1,156 @@
 /**
- * Lora Max Performance - Input Segmenter
+ * Lora — Semantic Input Segmenter
  * 
- * Splits ANY input into minimal atomic truth-segments.
- * Handles TikTok mode for chaotic, slang-filled content.
+ * NO HARDCODED PATTERNS. NO REGEX FOR CONTENT DETECTION.
+ * Uses LLM semantic reasoning to segment input into atomic claims.
  */
 
-// =============================================================================
-// TIKTOK MODE DETECTION
-// =============================================================================
+// Lazy load OpenAI
+let openaiClient = null;
 
-const TIKTOK_INDICATORS = {
-  // Emoji density threshold
-  emojiRatio: 0.05,
-  // Slang words
-  slang: /\b(fr|ngl|ong|lowkey|highkey|bussin|cap|nocap|no cap|slay|fire|lit|vibes|sus|bet|fam|bruh|sis|periodt|snatched|tea|stan|simp|vibe check|main character|rent free|understood the assignment)\b/gi,
-  // Chaotic punctuation
-  chaoticPunctuation: /[!?]{2,}|\.{3,}|~+/g,
-  // Run-on sentences (very long without proper punctuation)
-  runOnThreshold: 150,
-  // Hype phrases
-  hype: /\b(you won't believe|wait for it|plot twist|breaking|exposed|leaked|confirmed|proof that|this is why|watch till the end)\b/gi
-};
-
-/**
- * Detect if input is TikTok-style chaotic content
- */
-export function detectTikTokMode(text) {
-  if (!text || typeof text !== 'string') return false;
-  
-  let score = 0;
-  
-  // Check emoji density
-  const emojiCount = (text.match(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]/gu) || []).length;
-  if (emojiCount / text.length > TIKTOK_INDICATORS.emojiRatio) score += 2;
-  
-  // Check slang
-  const slangMatches = text.match(TIKTOK_INDICATORS.slang) || [];
-  if (slangMatches.length >= 2) score += 2;
-  
-  // Check chaotic punctuation
-  if (TIKTOK_INDICATORS.chaoticPunctuation.test(text)) score += 1;
-  
-  // Check for run-on sentences
-  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-  const hasRunOn = sentences.some(s => s.length > TIKTOK_INDICATORS.runOnThreshold);
-  if (hasRunOn) score += 1;
-  
-  // Check hype phrases
-  if (TIKTOK_INDICATORS.hype.test(text)) score += 2;
-  
-  return {
-    isTikTok: score >= 3,
-    score,
-    indicators: {
-      emojiCount,
-      slangMatches: slangMatches.length,
-      hasChaoticPunctuation: TIKTOK_INDICATORS.chaoticPunctuation.test(text),
-      hasRunOn,
-      hasHype: TIKTOK_INDICATORS.hype.test(text)
-    }
-  };
+async function getOpenAI() {
+  if (!openaiClient) {
+    const { default: OpenAI } = await import('openai');
+    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openaiClient;
 }
 
 // =============================================================================
-// TEXT NORMALIZATION
+// SEMANTIC SEGMENTATION PROMPT
 // =============================================================================
 
-// Common typo corrections for fact-checking
-const TYPO_MAP = {
-  'piza': 'pizza',
-  'grren': 'green',
-  'teh': 'the',
-  'adn': 'and',
-  'becuase': 'because',
-  'goverment': 'government',
-  'definately': 'definitely',
-  'occured': 'occurred',
-  'recieve': 'receive',
-  'seperate': 'separate',
-  'thier': 'their',
-  'untill': 'until',
-  'wierd': 'weird',
-  'vaccum': 'vacuum',
-  'neccessary': 'necessary',
-  'accomodate': 'accommodate',
-  'millenial': 'millennial',
-  'occassion': 'occasion',
-  'restaraunt': 'restaurant'
-};
+const SEGMENTATION_PROMPT = `You are a text segmenter. Your job is to split input into atomic segments, where each segment contains ONE distinct idea, claim, or statement.
+
+RULES:
+1. Each segment should be a complete thought that can stand alone
+2. Separate personal statements from factual claims
+3. Separate distinct claims even if they're in the same sentence
+4. Preserve the original wording (don't paraphrase)
+5. Handle chaotic/informal text (social media, slang, emoji) by extracting meaningful segments
+6. Very short reactions or filler words can be grouped or omitted
+
+EXAMPLES OF GOOD SEGMENTATION:
+
+Input: "My girlfriend bought me pizza today. Also did you know Einstein failed math class? I feel so happy right now. The Eiffel Tower is in London."
+Segments:
+- "My girlfriend bought me pizza today"
+- "Einstein failed math class"  
+- "I feel so happy right now"
+- "The Eiffel Tower is in London"
+
+Input: "OMG wait 😱 scientists just confirmed the moon is cheese fr fr and also bleach cures covid my doc said so"
+Segments:
+- "scientists just confirmed the moon is cheese"
+- "bleach cures covid"
+- "my doc said so"
+
+Respond in JSON:
+{
+  "segments": ["segment1", "segment2", ...],
+  "inputStyle": "formal" | "casual" | "chaotic"
+}`;
+
+// =============================================================================
+// SEMANTIC SEGMENTATION
+// =============================================================================
 
 /**
- * Normalize text for fact-checking (preserves original for display)
+ * Segment input using LLM semantic reasoning
+ * @param {string} text - Raw input text
+ * @param {Object} options - Options
+ * @returns {Promise<Object>} Segmentation result
+ */
+export async function segmentInput(text, options = {}) {
+  if (!text || typeof text !== 'string' || text.trim().length === 0) {
+    return { segments: [], tikTokMode: false, metadata: {} };
+  }
+
+  const startTime = performance.now();
+
+  try {
+    const openai = await getOpenAI();
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: SEGMENTATION_PROMPT },
+        { role: 'user', content: `Segment this input:\n\n"${text}"` }
+      ],
+      temperature: 0.1,
+      max_tokens: 1000,
+      response_format: { type: 'json_object' }
+    });
+
+    const result = JSON.parse(response.choices[0].message.content);
+    const rawSegments = result.segments || [];
+    const inputStyle = result.inputStyle || 'casual';
+
+    // Build segment objects
+    const segments = rawSegments
+      .filter(seg => seg && seg.trim().length > 0)
+      .map(seg => ({
+        original: seg.trim(),
+        normalized: seg.trim().toLowerCase(),
+        length: seg.length
+      }));
+
+    const elapsed = performance.now() - startTime;
+
+    return {
+      segments,
+      tikTokMode: inputStyle === 'chaotic',
+      metadata: {
+        inputLength: text.length,
+        segmentCount: segments.length,
+        inputStyle,
+        segmentationTimeMs: elapsed.toFixed(2)
+      }
+    };
+
+  } catch (error) {
+    console.error('[Segmenter] Error:', error.message);
+    
+    // Fallback: simple sentence splitting (no semantic assumptions)
+    const segments = text
+      .split(/[.!?]+/)
+      .map(s => s.trim())
+      .filter(s => s.length > 0)
+      .map(seg => ({
+        original: seg,
+        normalized: seg.toLowerCase(),
+        length: seg.length
+      }));
+
+    return {
+      segments,
+      tikTokMode: false,
+      metadata: {
+        inputLength: text.length,
+        segmentCount: segments.length,
+        inputStyle: 'unknown',
+        segmentationTimeMs: '0',
+        fallback: true
+      }
+    };
+  }
+}
+
+/**
+ * Detect if input style is chaotic (for backwards compatibility)
+ */
+export function detectTikTokMode(text) {
+  // This is now handled by the LLM in segmentInput
+  // Keeping for backwards compatibility
+  return { isTikTok: false, score: 0, indicators: {} };
+}
+
+/**
+ * Normalize text (minimal - just for caching/matching)
  */
 export function normalizeForFactCheck(text) {
   if (!text) return '';
-  
-  let normalized = text.toLowerCase().trim();
-  
-  // Fix common typos
-  for (const [typo, correct] of Object.entries(TYPO_MAP)) {
-    normalized = normalized.replace(new RegExp(`\\b${typo}\\b`, 'gi'), correct);
-  }
-  
-  // Remove excessive whitespace
-  normalized = normalized.replace(/\s+/g, ' ');
-  
-  // Remove emoji for matching purposes
-  normalized = normalized.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]/gu, '');
-  
-  return normalized.trim();
-}
-
-// =============================================================================
-// SEGMENTATION LOGIC
-// =============================================================================
-
-/**
- * Standard segmentation by sentence/clause boundaries
- * Optimized to isolate personal from factual claims
- */
-function standardSegment(text) {
-  const segments = [];
-  
-  // Pre-process: split by "Also did you know" and similar fact-introducers
-  const preprocessed = text
-    .replace(/\.\s*(also |and |but |oh and |plus )?did you know\s*/gi, '. [SPLIT] ')
-    .replace(/\.\s*(also |and |but )?fun fact:?\s*/gi, '. [SPLIT] ')
-    .replace(/\.\s*btw\s*/gi, '. [SPLIT] ');
-  
-  // Split by sentence boundaries AND our markers
-  const sentences = preprocessed.split(/(?<=[.!?])\s+|\[SPLIT\]/);
-  
-  for (const sentence of sentences) {
-    const trimmed = sentence.trim();
-    if (!trimmed || trimmed.length < 5) continue;
-    
-    // Check if sentence mixes personal and factual content
-    const hasPersonal = /^(my|i |i'|we |our )/i.test(trimmed);
-    const hasFactual = /(is|are|was|were|causes?|cures?|confirmed|proven|invented|discovered|failed|located|capital|made of|is in|tower|einstein|vaccine)/i.test(trimmed);
-    
-    // If it mixes both, try to split more aggressively
-    if (hasPersonal && hasFactual && trimmed.length > 40) {
-      // Split by "Also", "And", "But", etc.
-      const parts = trimmed.split(/\s+(?:also|and also|plus|but also|oh and|but)\s+/i);
-      for (const part of parts) {
-        if (part.trim().length > 8) {
-          segments.push(part.trim());
-        }
-      }
-    } else if (trimmed.length > 100) {
-      // Further split long sentences by major conjunctions
-      const clauses = trimmed.split(/\s*(?:,\s*(?:and|but|or|however|although|because|since|while|whereas))\s*/i);
-      for (const clause of clauses) {
-        if (clause.trim().length > 10) {
-          segments.push(clause.trim());
-        }
-      }
-    } else {
-      segments.push(trimmed);
-    }
-  }
-  
-  return segments;
-}
-
-/**
- * Aggressive TikTok-style segmentation
- * Key principle: ALWAYS split to isolate factual claims from personal statements
- */
-function tikTokSegment(text) {
-  const segments = [];
-  
-  // First, split by obvious boundaries
-  let chunks = text
-    // Split by emoji clusters (but don't lose text)
-    .replace(/([\u{1F300}-\u{1F9FF}]+)/gu, ' |SPLIT| ')
-    .split('|SPLIT|')
-    // Split by line breaks
-    .flatMap(chunk => chunk.split(/\n+/))
-    // Split by sentence endings
-    .flatMap(chunk => chunk.split(/(?<=[.!?])\s*/))
-    // Split by hype markers
-    .flatMap(chunk => chunk.split(/(?:wait for it|plot twist|breaking|but like|and then|so basically|okay so|also|and also|plus|oh and)/i))
-    // Split by "and" when it separates distinct claims
-    .flatMap(chunk => {
-      // If chunk contains "and" + factual indicator, split it
-      if (/\band\b.{5,}(is|are|was|were|causes?|cures?|confirmed|proven)/i.test(chunk)) {
-        return chunk.split(/\s+and\s+/i);
-      }
-      return [chunk];
-    });
-  
-  for (let chunk of chunks) {
-    chunk = chunk.trim();
-    if (!chunk || chunk.length < 5) continue;
-    
-    // Skip pure emoji chunks
-    if (/^[\u{1F300}-\u{1F9FF}\s]+$/u.test(chunk)) continue;
-    
-    // Skip pure slang/filler
-    if (/^(fr|fr fr|no cap|ngl|ong|lowkey|highkey|like|literally|basically)$/i.test(chunk)) continue;
-    
-    // Further split long chunks by commas and conjunctions
-    if (chunk.length > 60) {
-      const subChunks = chunk.split(/\s*[,;]\s*|\s+(?:but|or|also|plus)\s+/i);
-      for (const sub of subChunks) {
-        const cleaned = sub.trim();
-        if (cleaned.length > 8) {
-          segments.push(cleaned);
-        }
-      }
-    } else if (chunk.length > 8) {
-      segments.push(chunk);
-    }
-  }
-  
-  return segments;
-}
-
-// =============================================================================
-// MAIN EXPORT
-// =============================================================================
-
-/**
- * Segment input into atomic truth-claims
- * @param {string} text - Raw input text
- * @param {Object} options - Segmentation options
- * @returns {{ segments: string[], tikTokMode: boolean, metadata: Object }}
- */
-export function segmentInput(text, options = {}) {
-  if (!text || typeof text !== 'string') {
-    return { segments: [], tikTokMode: false, metadata: {} };
-  }
-  
-  const startTime = performance.now();
-  
-  // Detect TikTok mode
-  const tikTokDetection = options.forceTikTok ? 
-    { isTikTok: true, score: 10, indicators: {} } : 
-    detectTikTokMode(text);
-  
-  // Choose segmentation strategy
-  const rawSegments = tikTokDetection.isTikTok ? 
-    tikTokSegment(text) : 
-    standardSegment(text);
-  
-  // Deduplicate and clean
-  const seen = new Set();
-  const segments = [];
-  
-  for (const seg of rawSegments) {
-    const normalized = normalizeForFactCheck(seg);
-    if (normalized.length > 5 && !seen.has(normalized)) {
-      seen.add(normalized);
-      segments.push({
-        original: seg,
-        normalized,
-        length: seg.length
-      });
-    }
-  }
-  
-  const elapsed = performance.now() - startTime;
-  
-  return {
-    segments,
-    tikTokMode: tikTokDetection.isTikTok,
-    metadata: {
-      inputLength: text.length,
-      segmentCount: segments.length,
-      tikTokScore: tikTokDetection.score,
-      indicators: tikTokDetection.indicators,
-      segmentationTimeMs: elapsed.toFixed(2)
-    }
-  };
+  return text.toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
 export default {
@@ -281,4 +158,3 @@ export default {
   detectTikTokMode,
   normalizeForFactCheck
 };
-

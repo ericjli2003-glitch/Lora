@@ -99,16 +99,15 @@ export async function classifySemanticBatch(segments) {
     
     // Map back to segments
     const classified = segments.map((segment, index) => {
-      const classification = classifications.find(c => c.index === index) || 
-        { type: 'FACTUAL', reason: 'defaulting to factual' };
+      const classification = classifications.find(c => c.index === index);
       
       return {
         index,
         segment: segment.original || segment,
         normalized: segment.normalized || (segment.original || segment).toLowerCase().trim(),
-        type: classification.type.toUpperCase(),
-        reason: classification.reason,
-        confidence: 85 // LLM classification confidence
+        type: classification?.type?.toUpperCase() || 'FACTUAL', // Default to FACTUAL (better to check than miss)
+        reason: classification?.reason || null,
+        confidence: classification ? 85 : 50
       };
     });
 
@@ -144,14 +143,15 @@ export async function classifySemanticBatch(segments) {
       segment: segment.original || segment,
       normalized: segment.normalized || (segment.original || segment).toLowerCase().trim(),
       type: 'FACTUAL',
-      reason: 'fallback - classification failed',
-      confidence: 50
+      reason: null, // No hardcoded reason
+      confidence: 50,
+      classificationFailed: true
     }));
 
     return {
       classified,
       grouped: { PERSONAL: [], FACTUAL: classified, NONSENSE: [], HARMFUL: [] },
-      stats: { total: segments.length, personal: 0, factual: segments.length, nonsense: 0, harmful: 0 }
+      stats: { total: segments.length, personal: 0, factual: segments.length, nonsense: 0, harmful: 0, classificationFailed: true }
     };
   }
 }

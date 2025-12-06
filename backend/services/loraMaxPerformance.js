@@ -105,10 +105,12 @@ Respond in JSON format:
     return parsed.results || [];
   } catch (error) {
     logger.error('Fast fact-check error:', error.message);
+    // Return null credibility to indicate verification failed - let LLM explain
     return claims.map((_, i) => ({ 
       index: i + 1, 
-      credibility: 50, 
-      explanation: 'Could not verify - please check manually' 
+      credibility: null, 
+      explanation: null,
+      verificationFailed: true
     }));
   }
 }
@@ -168,7 +170,17 @@ Format: { "results": [{ "index": 1, "credibility": X, "explanation": "..." }] }`
 
   // Average scores and combine explanations
   return claims.map((claim, i) => {
-    const data = aggregated.get(i + 1) || { scores: [50], explanations: ['Could not verify'] };
+    const data = aggregated.get(i + 1);
+    
+    if (!data || data.scores.length === 0) {
+      return {
+        index: i + 1,
+        credibility: null,
+        explanation: null,
+        verificationFailed: true
+      };
+    }
+    
     const avgScore = Math.round(data.scores.reduce((a, b) => a + b, 0) / data.scores.length);
     
     return {
@@ -211,9 +223,10 @@ async function batchFactCheck(checkableSegments, options = {}) {
     // Map results back to segments
     freshResults = needsCheck.map((segment, i) => ({
       ...segment,
-      credibility: freshResults[i]?.credibility ?? 50,
-      explanation: freshResults[i]?.explanation ?? 'Could not verify',
-      fromMemory: false
+      credibility: freshResults[i]?.credibility ?? null,
+      explanation: freshResults[i]?.explanation ?? null,
+      fromMemory: false,
+      verificationFailed: freshResults[i]?.verificationFailed || false
     }));
     
     // Store fresh results in memory
@@ -267,11 +280,14 @@ export async function runMaxPerformancePipeline(input, options = {}) {
   timings.segmentMs = (performance.now() - segmentStart).toFixed(2);
   
   if (segmentation.segments.length === 0) {
+    // Let LLM generate appropriate message for empty input
+    const emptyResponse = await generateDynamicResponse([], input);
     return {
       success: true,
       mode: 'empty',
-      message: "couldn't find any claims to check in that",
       segments: [],
+      loraMessage: emptyResponse.overallMessage,
+      siriResponse: emptyResponse.siriResponse,
       timings: { totalMs: (performance.now() - pipelineStart).toFixed(2) }
     };
   }
@@ -309,7 +325,7 @@ export async function runMaxPerformancePipeline(input, options = {}) {
   // ===================
   const combineStart = performance.now();
   
-  // Build final analysis
+  // Build final analysis - NO hardcoded messages, just data
   const analysis = classification.classified.map(segment => {
     const base = {
       segment: segment.segment,
@@ -323,7 +339,7 @@ export async function runMaxPerformancePipeline(input, options = {}) {
         ...base,
         credibility: null,
         source: null,
-        explanation: 'personal content — not fact-checkable'
+        explanation: null // LLM will generate appropriate response
       };
     }
     
@@ -332,23 +348,12 @@ export async function runMaxPerformancePipeline(input, options = {}) {
       r => r.normalized === segment.normalized || r.segment === segment.segment
     );
     
-    // Handle different classification types
-    let defaultCredibility = 50;
-    let defaultExplanation = 'could not verify';
-    
-    if (segment.type === 'NONSENSE') {
-      defaultCredibility = 2;
-      defaultExplanation = 'fantastical claim — contradicts physical reality';
-    } else if (segment.type === 'HARMFUL') {
-      defaultCredibility = 5;
-      defaultExplanation = '⚠️ potentially harmful misinformation — please verify with trusted sources';
-    }
-    
     return {
       ...base,
-      credibility: result?.credibility ?? defaultCredibility,
+      credibility: result?.credibility ?? null,
       source: result?.fromMemory ? 'memory' : 'fresh',
-      explanation: result?.explanation ?? defaultExplanation
+      explanation: result?.explanation ?? null,
+      verificationFailed: result?.verificationFailed || (result?.credibility === null)
     };
   });
   
@@ -433,10 +438,7 @@ export async function runMaxPerformancePipeline(input, options = {}) {
     
     // LLM-generated messages (dynamic, not templated)
     loraMessage: dynamicResponse.overallMessage,
-    siriResponse: dynamicResponse.siriResponse,
-    
-    // Action complete marker
-    actionComplete: 'Lora AI (Max Performance Edition) executed.'
+    siriResponse: dynamicResponse.siriResponse
   };
 }
 
@@ -488,12 +490,13 @@ Respond in JSON only.`;
     return JSON.parse(response.choices[0].message.content);
   } catch (error) {
     console.error('[DynamicResponse] Error:', error.message);
-    // Minimal fallback
+    // Return nulls - let the client handle missing responses
     return {
       personalResponse: null,
       factCheckResponse: null,
-      siriResponse: "I analyzed that for you. Check the details in the app.",
-      overallMessage: "Here's what I found in my analysis."
+      siriResponse: null,
+      overallMessage: null,
+      generationFailed: true
     };
   }
 }
