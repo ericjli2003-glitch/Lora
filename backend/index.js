@@ -37,6 +37,7 @@ import {
 } from './services/loraMaxPerformance.js';
 import { runUnifiedPipeline } from './services/loraUnified.js';
 import { runTieredPipeline } from './services/loraTiered.js';
+import { runOptimizedPipeline } from './services/loraOptimized.js';
 import logger from './services/logger.js';
 
 dotenv.config();
@@ -1229,18 +1230,17 @@ function getSources(verdict, claim) {
 }
 
 // =============================================================================
-// POST /api/check-max - Tiered Fact-Checking Pipeline
-// FREE: Single model (GPT-4o-mini) ~1-2s
-// PREMIUM: Multi-model consensus (GPT-4 + Claude + Perplexity) ~3-4s
+// POST /api/check-max - Optimized Multi-Model Pipeline
+// Uses GPT-4o-mini for analysis + GPT-4o/Claude/Perplexity in PARALLEL for fact-checking
+// Target: ~2-3 seconds with full multi-model consensus
 // =============================================================================
 
 app.post('/api/check-max', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const { text, input, premium } = req.body;
+    const { text, input } = req.body;
     const inputText = text || input;
-    const isPremium = premium === true;
     
     if (!inputText || typeof inputText !== 'string' || inputText.trim().length === 0) {
       return res.status(400).json({
@@ -1249,8 +1249,8 @@ app.post('/api/check-max', async (req, res) => {
       });
     }
     
-    // Run TIERED pipeline
-    const result = await runTieredPipeline(inputText, { premium: isPremium });
+    // Run OPTIMIZED multi-model pipeline (all models in parallel)
+    const result = await runOptimizedPipeline(inputText);
     
     if (!result.success) {
       return res.status(400).json({
@@ -1263,7 +1263,6 @@ app.post('/api/check-max', async (req, res) => {
     res.json({
       success: true,
       mode: result.mode,
-      tier: result.tier,
       models: result.models,
       
       // Summary
@@ -1276,7 +1275,7 @@ app.post('/api/check-max', async (req, res) => {
       loraMessage: result.loraMessage,
       siriResponse: result.siriResponse,
       
-      // Premium: model consensus details
+      // Multi-model consensus details
       modelConsensus: result.modelConsensus,
       
       // Harmful warning
