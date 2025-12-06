@@ -1,15 +1,18 @@
 /**
- * Lora Ultra-Speed Mode
+ * Lora Ultra-Speed Pipeline v2
  * 
- * Two-phase pipeline with:
- * - Content fingerprinting (SHA256 caching)
- * - Model bucketing (FAST → MID → FULL)
- * - Delta verification (skip slow models if fast agree)
- * - Smart timeouts without accuracy loss
- * - Full models always have final priority
+ * Full accuracy-preserving inference pipeline with:
+ * - Two-phase FAST → FULL execution
+ * - Semantic + exact caching
+ * - Input compression
+ * - Delta verification (skip slow models when not needed)
+ * - Speculative execution
+ * - Per-model timeouts
+ * - Full parallelization
+ * 
+ * Target: 2×–10× latency reduction with no accuracy loss
  */
 
-import crypto from 'crypto';
 import { checkWithOpenAI } from './openai.js';
 import { checkWithAnthropic } from './anthropic.js';
 import { checkWithGoogle } from './google.js';
@@ -17,133 +20,77 @@ import { checkWithPerplexity } from './perplexity.js';
 import { 
   computeTruthfulnessSpectrum, 
   getSpectrumMessage, 
-  getVerdictFromScore 
+  getVerdictFromScore,
+  detectPersonalStatement 
 } from './truthfulnessSpectrum.js';
+import { 
+  checkExactCache, 
+  checkSemanticCache, 
+  cacheResult, 
+  precomputeEmbedding,
+  getCacheStats as getSemanticCacheStats,
+  clearAllCaches as clearSemanticCaches
+} from './semanticCache.js';
+import { quickClean, compressForInference } from './inputCompressor.js';
+import { quickSearchSources } from './webSearch.js';
+import logger from './logger.js';
 
 // =============================================================================
-// CACHES (In-memory with TTL)
+// CONFIGURATION
 // =============================================================================
 
-const fastCache = new Map();  // 5 minute TTL
-const fullCache = new Map();  // 10 minute TTL
-const sourceCache = new Map(); // 15 minute TTL for citations
-
-const FAST_CACHE_TTL = 5 * 60 * 1000;   // 5 minutes
-const FULL_CACHE_TTL = 10 * 60 * 1000;  // 10 minutes
-const SOURCE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
-
-/**
- * Clean expired cache entries periodically
- */
-function cleanCache(cache, ttl) {
-  const now = Date.now();
-  for (const [key, entry] of cache.entries()) {
-    if (now - entry.timestamp > ttl) {
-      cache.delete(key);
-    }
-  }
-}
-
-// Clean caches every minute
-setInterval(() => {
-  cleanCache(fastCache, FAST_CACHE_TTL);
-  cleanCache(fullCache, FULL_CACHE_TTL);
-  cleanCache(sourceCache, SOURCE_CACHE_TTL);
-}, 60 * 1000);
-
-// =============================================================================
-// CONTENT FINGERPRINTING
-// =============================================================================
-
-/**
- * Generate SHA256 hash for content fingerprinting
- */
-function hashText(text) {
-  return crypto.createHash('sha256').update(text.toLowerCase().trim()).digest('hex');
-}
-
-/**
- * Check if result exists in cache
- */
-function getCachedResult(text) {
-  const hash = hashText(text);
+const CONFIG = {
+  // Confidence thresholds for skipping
+  SKIP_MID_THRESHOLD: 0.88,    // Skip mid bucket if fast confidence >= this
+  SKIP_FULL_THRESHOLD: 0.90,   // Skip full bucket if combined confidence >= this
   
-  // Check full cache first (more accurate)
-  const fullEntry = fullCache.get(hash);
-  if (fullEntry && Date.now() - fullEntry.timestamp < FULL_CACHE_TTL) {
-    return { hit: true, type: 'full', data: fullEntry.data };
-  }
+  // Timeout settings (ms)
+  FAST_TIMEOUT: 1500,
+  MID_TIMEOUT: 3500,
+  FULL_TIMEOUT: 10000,
   
-  // Check fast cache
-  const fastEntry = fastCache.get(hash);
-  if (fastEntry && Date.now() - fastEntry.timestamp < FAST_CACHE_TTL) {
-    return { hit: true, type: 'fast', data: fastEntry.data };
-  }
+  // Cache TTLs
+  EXACT_CACHE_TTL: 10 * 60 * 1000,    // 10 minutes
+  SEMANTIC_CACHE_TTL: 24 * 60 * 60 * 1000, // 24 hours
   
-  return { hit: false };
-}
-
-/**
- * Store result in cache
- */
-function cacheResult(text, data, type = 'full') {
-  const hash = hashText(text);
-  const entry = { data, timestamp: Date.now() };
-  
-  if (type === 'fast') {
-    fastCache.set(hash, entry);
-  } else {
-    fullCache.set(hash, entry);
-  }
-}
-
-/**
- * Cache sources/citations for reuse
- */
-function cacheSources(claim, sources) {
-  const hash = hashText(claim);
-  sourceCache.set(hash, { sources, timestamp: Date.now() });
-}
-
-function getCachedSources(claim) {
-  const hash = hashText(claim);
-  const entry = sourceCache.get(hash);
-  if (entry && Date.now() - entry.timestamp < SOURCE_CACHE_TTL) {
-    return entry.sources;
-  }
-  return null;
-}
+  // Input compression
+  MAX_INPUT_LENGTH: 500,
+  COMPRESS_THRESHOLD: 300
+};
 
 // =============================================================================
-// MODEL BUCKETS
+// MODEL BUCKET DEFINITIONS
 // =============================================================================
 
 /**
- * Model configuration with timeouts
+ * Model buckets with their configurations
+ * FAST → MID → FULL progression
  */
 const MODEL_BUCKETS = {
   FAST: {
-    timeout: 1500,  // 1.5 seconds
+    timeout: CONFIG.FAST_TIMEOUT,
+    weight: 0.8,
     models: [
-      { name: 'OpenAI-Fast', fn: checkWithOpenAI, weight: 1.0 },
-      { name: 'Google-Flash', fn: checkWithGoogle, weight: 1.0 },
-      { name: 'Perplexity-Light', fn: checkWithPerplexity, weight: 0.9 }
+      { name: 'GPT-4o-mini', fn: checkWithOpenAI, weight: 1.0 },
+      { name: 'Gemini-Flash', fn: checkWithGoogle, weight: 1.0 },
+      { name: 'Perplexity-Lite', fn: checkWithPerplexity, weight: 0.9 }
     ]
   },
   MID: {
-    timeout: 3000,  // 3 seconds
+    timeout: CONFIG.MID_TIMEOUT,
+    weight: 1.0,
     models: [
-      // Same models but we track them as "mid" tier for reporting
-      { name: 'OpenAI-Mid', fn: checkWithOpenAI, weight: 1.0 },
-      { name: 'Google-Pro', fn: checkWithGoogle, weight: 1.0 }
+      { name: 'GPT-4o', fn: checkWithOpenAI, weight: 1.1 },
+      { name: 'Gemini-Pro', fn: checkWithGoogle, weight: 1.0 }
     ]
   },
   FULL: {
-    timeout: 10000, // 10 seconds hard limit
+    timeout: CONFIG.FULL_TIMEOUT,
+    weight: 1.2,
     models: [
-      { name: 'OpenAI-Full', fn: checkWithOpenAI, weight: 1.2 },
-      { name: 'Anthropic-Claude', fn: checkWithAnthropic, weight: 1.3 },
-      { name: 'Google-Full', fn: checkWithGoogle, weight: 1.1 },
+      { name: 'GPT-4o-Full', fn: checkWithOpenAI, weight: 1.2 },
+      { name: 'Claude-Sonnet', fn: checkWithAnthropic, weight: 1.3 },
+      { name: 'Gemini-Full', fn: checkWithGoogle, weight: 1.1 },
       { name: 'Perplexity-Full', fn: checkWithPerplexity, weight: 1.0 }
     ]
   }
@@ -154,45 +101,51 @@ const MODEL_BUCKETS = {
 // =============================================================================
 
 /**
- * Run a model with timeout - returns unverifiable on timeout (no accuracy loss)
+ * Run a model with timeout
+ * Returns unverifiable on timeout (no accuracy loss)
  */
 async function runWithTimeout(modelFn, text, timeout, modelName) {
-  const startTime = Date.now();
+  const timer = logger.createTimer(modelName);
   
   try {
     const result = await Promise.race([
       modelFn(text),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('timeout')), timeout)
+        setTimeout(() => reject(new Error('TIMEOUT')), timeout)
       )
     ]);
+    
+    const latency = timer.elapsed();
+    logger.modelResult(modelName, result.verdict, result.confidence, latency);
     
     return {
       success: true,
       model: modelName,
-      latency: Date.now() - startTime,
+      latency,
       ...result
     };
   } catch (error) {
-    if (error.message === 'timeout') {
-      // Timeout: return unverifiable with low confidence (no accuracy penalty)
+    const latency = timer.elapsed();
+    
+    if (error.message === 'TIMEOUT') {
+      logger.debug(`  ⏱️ ${modelName}: Timeout after ${timeout}ms`);
       return {
         success: true,
         model: modelName,
         verdict: 'unverifiable',
         confidence: 25,
         reasoning: 'Model timed out',
-        latency: timeout,
+        latency,
         timedOut: true
       };
     }
     
-    // Actual error
+    logger.debug(`  ❌ ${modelName}: ${error.message}`);
     return {
       success: false,
       model: modelName,
       error: error.message,
-      latency: Date.now() - startTime
+      latency
     };
   }
 }
@@ -204,12 +157,15 @@ async function runWithTimeout(modelFn, text, timeout, modelName) {
 /**
  * Run all models in a bucket in parallel
  */
-async function runBucket(bucketName, text) {
+async function runBucket(bucketName, text, compressedText = null) {
   const bucket = MODEL_BUCKETS[bucketName];
-  const startTime = Date.now();
+  const timer = logger.createTimer(`Bucket:${bucketName}`);
+  
+  // Use compressed text for slower buckets
+  const inputText = (bucketName !== 'FAST' && compressedText) ? compressedText : text;
   
   const promises = bucket.models.map(model => 
-    runWithTimeout(model.fn, text, bucket.timeout, model.name)
+    runWithTimeout(model.fn, inputText, bucket.timeout, model.name)
   );
   
   const results = await Promise.allSettled(promises);
@@ -218,42 +174,53 @@ async function runBucket(bucketName, text) {
     .filter(r => r.status === 'fulfilled' && r.value.success)
     .map(r => r.value);
   
+  const latency = timer.elapsed();
+  logger.debug(`  ${bucketName} bucket: ${responses.length}/${bucket.models.length} models, ${latency}ms`);
+  
   return {
     bucket: bucketName,
     responses,
-    latency: Date.now() - startTime,
-    modelCount: responses.length
+    latency,
+    modelCount: responses.length,
+    totalModels: bucket.models.length
   };
 }
 
 /**
- * Compute preliminary score from bucket results
+ * Compute score and agreement from bucket results
  */
 function computeBucketScore(responses) {
   if (responses.length === 0) {
-    return { score: null, confidence: 0, agreement: false };
+    return { score: null, confidence: 0, agreement: false, breakdown: [] };
   }
   
   const spectrum = computeTruthfulnessSpectrum(responses);
   
-  // Check if all models agree (within 20% of each other)
+  // Check model agreement (all within 30% of each other)
   const scores = responses
     .filter(r => r.verdict && r.confidence)
     .map(r => {
-      const verdictScore = r.verdict.toLowerCase().includes('true') ? 100 :
-                           r.verdict.toLowerCase().includes('false') ? 0 : 50;
-      return verdictScore;
+      const v = r.verdict.toLowerCase();
+      return v.includes('true') ? 100 : v.includes('false') ? 0 : 50;
     });
   
-  const maxScore = Math.max(...scores);
-  const minScore = Math.min(...scores);
-  const agreement = (maxScore - minScore) <= 30;
+  const maxScore = Math.max(...scores, 0);
+  const minScore = Math.min(...scores, 100);
+  const agreement = scores.length > 0 && (maxScore - minScore) <= 30;
+  
+  // Confidence based on agreement and response count
+  let confidence = 0;
+  if (spectrum.score !== null) {
+    confidence = agreement ? 0.92 : 0.75;
+    confidence *= (responses.length / 3); // Scale by response count
+    confidence = Math.min(1, confidence);
+  }
   
   return {
     score: spectrum.score,
-    confidence: spectrum.score !== null ? (agreement ? 0.9 : 0.7) : 0,
+    confidence,
     agreement,
-    breakdown: spectrum.modelBreakdown
+    breakdown: spectrum.modelBreakdown || []
   };
 }
 
@@ -262,24 +229,92 @@ function computeBucketScore(responses) {
 // =============================================================================
 
 /**
- * Determine if we need to run additional model buckets
+ * Determine if MID bucket should run
  */
 function shouldRunMidBucket(fastResult) {
-  // Skip mid bucket if:
-  // - Fast confidence >= 0.82 AND all fast models agree
-  return !(fastResult.confidence >= 0.82 && fastResult.agreement);
+  // Run MID if:
+  // - Fast confidence < threshold OR
+  // - Fast models disagree
+  return fastResult.confidence < CONFIG.SKIP_MID_THRESHOLD || !fastResult.agreement;
 }
 
+/**
+ * Determine if FULL bucket should run
+ */
 function shouldRunFullBucket(fastResult, midResult) {
-  // Skip full bucket if:
-  // - Combined confidence >= 0.9 AND fast+mid agree
-  const combinedConfidence = midResult 
-    ? (fastResult.confidence + midResult.confidence) / 2 
-    : fastResult.confidence;
+  if (!midResult) {
+    // No mid results - check fast only
+    return fastResult.confidence < CONFIG.SKIP_FULL_THRESHOLD;
+  }
   
-  const bothAgree = fastResult.agreement && (!midResult || midResult.agreement);
+  // Combined confidence
+  const combinedConfidence = (fastResult.confidence * 0.4 + midResult.confidence * 0.6);
+  const bothAgree = fastResult.agreement && midResult.agreement;
   
-  return !(combinedConfidence >= 0.9 && bothAgree);
+  // Also check if fast and mid results align
+  if (fastResult.score !== null && midResult.score !== null) {
+    const scoreDiff = Math.abs(fastResult.score - midResult.score);
+    if (scoreDiff > 20) {
+      // Significant disagreement - need full bucket
+      return true;
+    }
+  }
+  
+  return combinedConfidence < CONFIG.SKIP_FULL_THRESHOLD || !bothAgree;
+}
+
+// =============================================================================
+// RESULT MERGING
+// =============================================================================
+
+/**
+ * Merge results from all buckets
+ * FULL models always have priority when they contradict FAST
+ */
+function mergeResults(fastResult, midResult, fullResult) {
+  // If FULL bucket ran, it has highest priority
+  if (fullResult && fullResult.score !== null) {
+    // Check for contradiction with fast results
+    if (fastResult.score !== null) {
+      const deviation = Math.abs(fullResult.score - fastResult.score);
+      if (deviation > 15) {
+        logger.debug(`  ⚠️ Full contradicted fast by ${deviation}%`);
+      }
+    }
+    
+    return {
+      score: fullResult.score,
+      confidence: fullResult.confidence,
+      breakdown: fullResult.breakdown,
+      source: 'full'
+    };
+  }
+  
+  // If only MID + FAST
+  if (midResult && midResult.score !== null) {
+    // Weighted average (mid has more weight)
+    const score = Math.round(
+      (fastResult.score || 0) * 0.3 + 
+      midResult.score * 0.7
+    );
+    
+    const confidence = (fastResult.confidence * 0.3 + midResult.confidence * 0.7);
+    
+    return {
+      score,
+      confidence,
+      breakdown: [...(fastResult.breakdown || []), ...(midResult.breakdown || [])],
+      source: 'mid'
+    };
+  }
+  
+  // Only FAST
+  return {
+    score: fastResult.score,
+    confidence: fastResult.confidence,
+    breakdown: fastResult.breakdown,
+    source: 'fast'
+  };
 }
 
 // =============================================================================
@@ -288,180 +323,248 @@ function shouldRunFullBucket(fastResult, midResult) {
 
 /**
  * Ultra-speed fact-checking pipeline
- * Returns results with full accuracy, optimized for speed
+ * 
+ * Execution flow:
+ * 1. Personal statement detection (skip all if personal)
+ * 2. Cache lookup (exact → semantic)
+ * 3. Input compression (for slow models)
+ * 4. FAST bucket (parallel)
+ * 5. Delta check → maybe skip MID/FULL
+ * 6. MID bucket (if needed)
+ * 7. FULL bucket (if needed)
+ * 8. Result merging (full models win on conflict)
+ * 9. Cache storage
  */
 export async function ultraSpeedCheck(text) {
-  const pipelineStart = Date.now();
+  const pipelineTimer = logger.createTimer('Pipeline:Total');
   const usedModels = { fast: [], mid: [], full: [] };
+  const latency = { fastPhaseMs: 0, fullPhaseMs: 0, totalMs: 0 };
   
-  // ==========================================================================
-  // STEP 1: Check cache (instant return if hit)
-  // ==========================================================================
+  logger.pipeline('check', 'start', { length: text.length });
   
-  const cached = getCachedResult(text);
-  if (cached.hit && cached.type === 'full') {
-    console.log(`   ⚡ Cache hit (full) - 0ms`);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 0: Personal statement detection (skip everything if personal)
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  const personalCheck = detectPersonalStatement(text);
+  if (personalCheck.isPersonal) {
+    logger.pipeline('personal', 'skip', { reason: personalCheck.reason });
+    
     return {
-      ...cached.data,
-      fromCache: true,
-      latency: { fastPhaseMs: 0, fullPhaseMs: 0, totalMs: 0 }
+      mode: 'personal',
+      claim: text,
+      score: null,
+      confidence: null,
+      loraVerdict: null,
+      loraMessage: "this feels personal, not something to fact-check",
+      reason: personalCheck.reason,
+      latency: { fastPhaseMs: 0, fullPhaseMs: 0, totalMs: pipelineTimer.elapsed() },
+      usedModels,
+      pipelineInfo: { skippedAll: true, reason: 'personal' }
     };
   }
   
-  // ==========================================================================
-  // STEP 2: FAST PHASE (target: <800ms)
-  // ==========================================================================
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 1: Cache lookup (exact first, then semantic)
+  // ═══════════════════════════════════════════════════════════════════════════
   
-  console.log(`   ⚡ Phase 1: FAST bucket...`);
-  const fastPhaseStart = Date.now();
+  // Quick clean for consistent caching
+  const cleanedText = quickClean(text);
   
-  const fastBucket = await runBucket('FAST', text);
+  // Check exact cache first (instant)
+  const exactHit = checkExactCache(cleanedText);
+  if (exactHit.hit) {
+    logger.pipeline('cache', 'cache', { type: 'exact' });
+    return {
+      ...exactHit.data,
+      fromCache: true,
+      cacheType: 'exact',
+      latency: { fastPhaseMs: 0, fullPhaseMs: 0, totalMs: pipelineTimer.elapsed() }
+    };
+  }
+  
+  // Check semantic cache (requires embedding)
+  const semanticHit = await checkSemanticCache(cleanedText);
+  if (semanticHit.hit) {
+    logger.pipeline('cache', 'cache', { type: 'semantic', similarity: semanticHit.similarity?.toFixed(2) });
+    return {
+      ...semanticHit.data,
+      fromCache: true,
+      cacheType: 'semantic',
+      cacheSimilarity: semanticHit.similarity,
+      latency: { fastPhaseMs: 0, fullPhaseMs: 0, totalMs: pipelineTimer.elapsed() }
+    };
+  }
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 2: Speculative execution - Start background tasks
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  // Start embedding computation
+  const embeddingPromise = precomputeEmbedding(cleanedText);
+  
+  // Start source search in parallel (will complete while models run)
+  const sourceSearchPromise = quickSearchSources(cleanedText, 4000);
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 3: Input compression (for slower models)
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  let compressedText = cleanedText;
+  let compressionInfo = null;
+  
+  if (cleanedText.length > CONFIG.COMPRESS_THRESHOLD) {
+    const compression = await compressForInference(cleanedText, {
+      maxLength: CONFIG.MAX_INPUT_LENGTH,
+      useAI: false // Only use local compression for speed
+    });
+    compressedText = compression.compressed;
+    compressionInfo = {
+      original: cleanedText.length,
+      compressed: compressedText.length,
+      ratio: compression.ratio,
+      method: compression.method
+    };
+    logger.debug(`  Compressed: ${cleanedText.length} → ${compressedText.length} chars`);
+  }
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 4: FAST PHASE (< 800ms target)
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  logger.pipeline('fast', 'fast');
+  const fastPhaseStart = performance.now();
+  
+  const fastBucket = await runBucket('FAST', cleanedText);
   usedModels.fast = fastBucket.responses.map(r => r.model);
   
   const fastResult = computeBucketScore(fastBucket.responses);
-  const fastPhaseMs = Date.now() - fastPhaseStart;
+  latency.fastPhaseMs = Math.round(performance.now() - fastPhaseStart);
   
-  console.log(`      Fast: ${fastResult.score}% (${fastPhaseMs}ms, ${fastBucket.modelCount} models)`);
-  console.log(`      Agreement: ${fastResult.agreement ? 'YES' : 'NO'}, Confidence: ${(fastResult.confidence * 100).toFixed(0)}%`);
+  logger.debug(`  Fast result: ${fastResult.score}%, confidence: ${(fastResult.confidence * 100).toFixed(0)}%, agreement: ${fastResult.agreement}`);
   
-  // Cache fast result
-  cacheResult(text, {
-    mode: 'fact_check',
-    score: fastResult.score,
-    confidence: fastResult.confidence,
-    phase: 'fast'
-  }, 'fast');
-  
-  // ==========================================================================
-  // STEP 3: DELTA CHECK - Do we need more models?
-  // ==========================================================================
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 5: Delta verification - Should we run more models?
+  // ═══════════════════════════════════════════════════════════════════════════
   
   let midResult = null;
   let fullResult = null;
-  let fullPhaseMs = 0;
+  let skipInfo = { skippedMid: false, skippedFull: false };
   
   const needsMid = shouldRunMidBucket(fastResult);
   
   if (!needsMid) {
-    console.log(`      ✓ Skipping MID+FULL buckets (high confidence agreement)`);
+    logger.pipeline('mid', 'skip', { reason: 'high_confidence' });
+    skipInfo.skippedMid = true;
+    skipInfo.skippedFull = true;
   } else {
-    // ==========================================================================
-    // STEP 4: MID PHASE (if needed)
-    // ==========================================================================
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STEP 6: MID PHASE
+    // ═══════════════════════════════════════════════════════════════════════════
     
-    console.log(`   ⚡ Phase 2: Running additional models...`);
-    const fullPhaseStart = Date.now();
+    logger.pipeline('mid', 'mid');
+    const fullPhaseStart = performance.now();
     
-    // Run MID and prepare for FULL in parallel
-    const midBucket = await runBucket('MID', text);
+    const midBucket = await runBucket('MID', cleanedText, compressedText);
     usedModels.mid = midBucket.responses.map(r => r.model);
     midResult = computeBucketScore(midBucket.responses);
     
-    console.log(`      Mid: ${midResult.score}% (${midBucket.latency}ms)`);
+    logger.debug(`  Mid result: ${midResult.score}%, confidence: ${(midResult.confidence * 100).toFixed(0)}%`);
     
-    // ==========================================================================
-    // STEP 5: FULL PHASE (if still needed)
-    // ==========================================================================
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STEP 7: FULL PHASE (if still needed)
+    // ═══════════════════════════════════════════════════════════════════════════
     
     const needsFull = shouldRunFullBucket(fastResult, midResult);
     
     if (!needsFull) {
-      console.log(`      ✓ Skipping FULL bucket (mid confirmed fast results)`);
-      fullPhaseMs = Date.now() - fullPhaseStart;
+      logger.pipeline('full', 'skip', { reason: 'confirmed_by_mid' });
+      skipInfo.skippedFull = true;
     } else {
-      console.log(`      Running FULL bucket for maximum accuracy...`);
+      logger.pipeline('full', 'full');
       
-      const fullBucket = await runBucket('FULL', text);
+      const fullBucket = await runBucket('FULL', cleanedText, compressedText);
       usedModels.full = fullBucket.responses.map(r => r.model);
       fullResult = computeBucketScore(fullBucket.responses);
-      fullPhaseMs = Date.now() - fullPhaseStart;
       
-      console.log(`      Full: ${fullResult.score}% (${fullBucket.latency}ms, ${fullBucket.modelCount} models)`);
+      logger.debug(`  Full result: ${fullResult.score}%, confidence: ${(fullResult.confidence * 100).toFixed(0)}%`);
     }
-  }
-  
-  // ==========================================================================
-  // STEP 6: MERGE RESULTS (full models always win)
-  // ==========================================================================
-  
-  let finalScore;
-  let finalConfidence;
-  let spectrumBreakdown = [];
-  
-  if (fullResult && fullResult.score !== null) {
-    // Full bucket ran - use its result (highest accuracy)
-    finalScore = fullResult.score;
-    finalConfidence = fullResult.confidence;
-    spectrumBreakdown = fullResult.breakdown || [];
     
-    // Check if full deviated from fast by >10%
-    if (fastResult.score !== null && Math.abs(fullResult.score - fastResult.score) > 10) {
-      console.log(`      ⚠️ Full result deviated from fast by ${Math.abs(fullResult.score - fastResult.score)}%`);
-    }
-  } else if (midResult && midResult.score !== null) {
-    // Mid bucket ran - weighted average with fast
-    finalScore = Math.round((fastResult.score * 0.4 + midResult.score * 0.6));
-    finalConfidence = (fastResult.confidence + midResult.confidence) / 2;
-    spectrumBreakdown = [...(fastResult.breakdown || []), ...(midResult.breakdown || [])];
-  } else {
-    // Only fast bucket - use its result
-    finalScore = fastResult.score;
-    finalConfidence = fastResult.confidence;
-    spectrumBreakdown = fastResult.breakdown || [];
+    latency.fullPhaseMs = Math.round(performance.now() - fullPhaseStart);
   }
   
-  // ==========================================================================
-  // STEP 7: BUILD FINAL RESULT
-  // ==========================================================================
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 8: Merge results (full models win on conflict)
+  // ═══════════════════════════════════════════════════════════════════════════
   
-  const totalMs = Date.now() - pipelineStart;
-  const verdict = getVerdictFromScore(finalScore);
-  const message = getSpectrumMessage(finalScore, verdict.toLowerCase());
+  const merged = mergeResults(fastResult, midResult, fullResult);
+  
+  const verdict = getVerdictFromScore(merged.score);
+  const message = getSpectrumMessage(merged.score, verdict.toLowerCase());
+  
+  latency.totalMs = pipelineTimer.elapsed();
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 9: Get live sources (from parallel search)
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  const sourceResults = await sourceSearchPromise;
+  const sources = sourceResults.sources?.map(s => ({
+    title: s.title,
+    url: s.url,
+    snippet: s.snippet
+  })) || [];
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 10: Build final result
+  // ═══════════════════════════════════════════════════════════════════════════
   
   const result = {
     mode: 'fact_check',
     claim: text,
-    score: finalScore,
-    confidence: finalConfidence,
+    score: merged.score,
+    confidence: merged.confidence,
     loraVerdict: verdict,
     loraMessage: message,
-    latency: {
-      fastPhaseMs,
-      fullPhaseMs,
-      totalMs
-    },
+    latency,
     usedModels,
-    spectrumBreakdown,
+    spectrumBreakdown: merged.breakdown,
+    sources,
+    sourceProvider: sourceResults.provider,
     pipelineInfo: {
-      skippedMid: !needsMid,
-      skippedFull: needsMid && !shouldRunFullBucket(fastResult, midResult),
+      ...skipInfo,
+      source: merged.source,
+      compression: compressionInfo,
       cacheHit: false
     }
   };
   
-  // Cache the full result
-  cacheResult(text, result, 'full');
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 11: Cache result (with pre-computed embedding)
+  // ═══════════════════════════════════════════════════════════════════════════
   
-  console.log(`   🎯 Final: ${finalScore}% ${verdict} (${totalMs}ms total)`);
+  const embedding = await embeddingPromise;
+  await cacheResult(cleanedText, result, embedding);
+  
+  logger.pipeline('check', 'done', { 
+    score: merged.score, 
+    totalMs: latency.totalMs,
+    source: merged.source 
+  });
   
   return result;
 }
 
 // =============================================================================
-// CACHE STATS (for debugging)
+// EXPORTS
 // =============================================================================
 
 export function getCacheStats() {
-  return {
-    fastCache: fastCache.size,
-    fullCache: fullCache.size,
-    sourceCache: sourceCache.size
-  };
+  return getSemanticCacheStats();
 }
 
 export function clearCaches() {
-  fastCache.clear();
-  fullCache.clear();
-  sourceCache.clear();
+  clearSemanticCaches();
 }
 
+export { CONFIG as ULTRA_SPEED_CONFIG };

@@ -27,8 +27,10 @@ import {
 import { 
   ultraSpeedCheck, 
   getCacheStats, 
-  clearCaches 
+  clearCaches,
+  ULTRA_SPEED_CONFIG 
 } from './services/ultraSpeed.js';
+import logger from './services/logger.js';
 
 dotenv.config();
 
@@ -97,7 +99,7 @@ app.get('/health', (req, res) => {
 // =============================================================================
 
 app.post('/api/check', async (req, res) => {
-  const { text, mode: requestMode } = req.body;
+  const { text } = req.body;
 
   if (!text || typeof text !== 'string' || text.trim().length === 0) {
     return res.status(400).json(errorResponse(
@@ -106,17 +108,27 @@ app.post('/api/check', async (req, res) => {
     ));
   }
 
-  console.log(`\n📝 Checking claim: "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`);
+  logger.log(`Checking: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`);
 
   try {
-    // Step 1: Check if this is a personal statement (skip fact-checking)
-    const personalCheck = detectPersonalStatement(text);
+    // Ultra-speed pipeline handles:
+    // - Personal statement detection (skips all models)
+    // - Exact + semantic cache lookup
+    // - FAST → MID → FULL bucket execution
+    // - Delta verification (skips slow models when not needed)
+    // - Result merging (full models win on conflict)
     
-    if (personalCheck.isPersonal) {
-      console.log(`   Mode: Personal (${personalCheck.reason})`);
-      
-      // Route to personal interpretation instead
-      const interpretation = await personalInterpretation(text);
+    const result = await ultraSpeedCheck(text);
+    
+    // Handle personal mode (no fact-checking needed)
+    if (result.mode === 'personal') {
+      // Get warm interpretation for personal content
+      let interpretation = null;
+      try {
+        interpretation = await personalInterpretation(text);
+      } catch (e) {
+        // Fallback if interpretation fails
+      }
       
       return res.json({
         success: true,
@@ -124,20 +136,23 @@ app.post('/api/check', async (req, res) => {
         claim: text,
         score: null,
         loraVerdict: null,
-        loraMessage: interpretation.reaction || "this feels personal, not something to fact-check",
-        reason: personalCheck.reason,
-        interpretation: interpretation,
-        latency: { fastPhaseMs: 0, fullPhaseMs: 0, totalMs: 0 }
+        loraMessage: interpretation?.reaction || result.loraMessage || "this feels personal, not something to fact-check",
+        reason: result.reason,
+        interpretation,
+        latency: result.latency,
+        pipelineInfo: result.pipelineInfo
       });
     }
+    
+    // Log performance
+    const speedup = result.pipelineInfo?.skippedFull ? '⚡ FAST' : 
+                    result.pipelineInfo?.skippedMid ? '⚡ MID' : '🎯 FULL';
+    logger.log(`Result: ${result.score}% ${result.loraVerdict} (${result.latency.totalMs}ms) ${speedup}`);
 
-    // Step 2: It's a factual claim — use ULTRA-SPEED pipeline
-    console.log(`   Mode: Ultra-Speed Fact-check ⚡`);
-    
-    const result = await ultraSpeedCheck(text);
-    
-    // Get supporting sources
-    const sources = getSources(result.loraVerdict, text);
+    // Use live sources from pipeline, fallback to static sources
+    const sources = result.sources?.length > 0 
+      ? result.sources 
+      : getSources(result.loraVerdict, text);
 
     res.json({
       success: true,
@@ -151,14 +166,17 @@ app.post('/api/check', async (req, res) => {
       usedModels: result.usedModels,
       spectrumBreakdown: result.spectrumBreakdown,
       pipelineInfo: result.pipelineInfo,
-      sources: sources
+      sources,
+      sourceProvider: result.sourceProvider,
+      fromCache: result.fromCache || false,
+      cacheType: result.cacheType
     });
 
   } catch (error) {
-    console.error('Error processing request:', error);
+    logger.error('Pipeline error:', error.message);
     res.status(500).json(errorResponse(
       'ok something broke on my end, my bad. try again?',
-      { type: error.name }
+      { type: error.name, message: error.message }
     ));
   }
 });
@@ -172,7 +190,16 @@ app.get('/api/cache-stats', (req, res) => {
   res.json({
     success: true,
     caches: stats,
-    message: `${stats.fastCache + stats.fullCache} items cached`
+    config: {
+      skipMidThreshold: ULTRA_SPEED_CONFIG.SKIP_MID_THRESHOLD,
+      skipFullThreshold: ULTRA_SPEED_CONFIG.SKIP_FULL_THRESHOLD,
+      timeouts: {
+        fast: ULTRA_SPEED_CONFIG.FAST_TIMEOUT,
+        mid: ULTRA_SPEED_CONFIG.MID_TIMEOUT,
+        full: ULTRA_SPEED_CONFIG.FULL_TIMEOUT
+      }
+    },
+    message: `${stats.exactCache + stats.semanticCache} items cached (${stats.semanticCache} semantic)`
   });
 });
 
@@ -182,6 +209,7 @@ app.get('/api/cache-stats', (req, res) => {
 
 app.post('/api/clear-cache', (req, res) => {
   clearCaches();
+  logger.log('Caches cleared');
   res.json({
     success: true,
     message: 'all caches cleared'
@@ -737,9 +765,11 @@ app.post('/analyze', async (req, res) => {
 
       } else if (needsFactCheck(intentResult.intent)) {
         // Factual claim — use ULTRA-SPEED pipeline
-        console.log(`   Mode: Ultra-Speed Fact-checking ⚡`);
+        logger.log(`Analyze: Ultra-Speed fact-check`);
 
         const result = await ultraSpeedCheck(input);
+
+        logger.log(`Result: ${result.score}% (${result.latency?.totalMs}ms)`);
 
         res.json({
           success: true,
@@ -755,7 +785,8 @@ app.post('/analyze', async (req, res) => {
           spectrumBreakdown: result.spectrumBreakdown,
           pipelineInfo: result.pipelineInfo,
           sources: getSources(result.loraVerdict, input),
-          intent: intentResult
+          intent: intentResult,
+          fromCache: result.fromCache || false
         });
 
       } else {

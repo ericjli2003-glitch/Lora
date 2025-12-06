@@ -2,5 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Lora needs access to your photos to read text from screenshots for fact-checking.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Lora can save fact-check results as images.</string>
+	<key>NSSiriUsageDescription</key>
+	<string>Lora uses Siri to let you fact-check claims with your voice.</string>
 </dict>
 </plist>

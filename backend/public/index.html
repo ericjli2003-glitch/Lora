@@ -781,17 +781,22 @@
         const pipelineStatus = document.getElementById('pipelineStatus');
         const pipelineBadge = document.getElementById('pipelineBadge');
         
-        if (data.pipelineInfo?.cacheHit || data.fromCache) {
-          pipelineBadge.textContent = '⚡ CACHE HIT';
+        if (data.fromCache) {
+          const cacheType = data.cacheType === 'semantic' ? '🧠 SEMANTIC CACHE' : '⚡ EXACT CACHE';
+          pipelineBadge.textContent = cacheType;
           pipelineBadge.className = 'pipeline-badge cache-hit';
           pipelineStatus.style.display = 'block';
-        } else if (data.pipelineInfo?.skippedFull) {
-          pipelineBadge.textContent = 'SKIPPED FULL';
+        } else if (data.pipelineInfo?.skippedMid && data.pipelineInfo?.skippedFull) {
+          pipelineBadge.textContent = '🏃 FAST ONLY';
           pipelineBadge.className = 'pipeline-badge skipped';
           pipelineStatus.style.display = 'block';
-        } else if (data.pipelineInfo?.skippedMid) {
-          pipelineBadge.textContent = 'SKIPPED MID+FULL';
+        } else if (data.pipelineInfo?.skippedFull) {
+          pipelineBadge.textContent = '🔄 FAST+MID';
           pipelineBadge.className = 'pipeline-badge skipped';
+          pipelineStatus.style.display = 'block';
+        } else if (data.pipelineInfo?.source === 'full') {
+          pipelineBadge.textContent = '🎯 FULL PIPELINE';
+          pipelineBadge.className = 'pipeline-badge';
           pipelineStatus.style.display = 'block';
         } else {
           pipelineStatus.style.display = 'none';

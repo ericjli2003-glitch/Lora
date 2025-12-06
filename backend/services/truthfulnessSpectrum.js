@@ -17,40 +17,63 @@
  */
 export function detectPersonalStatement(text) {
   if (!text || typeof text !== 'string') {
-    return { isPersonal: false, reason: 'invalid input', confidence: 0 };
+    return { isPersonal: true, reason: 'invalid input', confidence: 100 };
   }
 
   const lower = text.toLowerCase().trim();
+  
+  // Empty or very short text
+  if (lower.length === 0) {
+    return { isPersonal: true, reason: 'empty input', confidence: 100 };
+  }
+  
+  if (lower.length < 10) {
+    return { isPersonal: true, reason: 'too short to be a factual claim', confidence: 80 };
+  }
 
   // First-person anecdotal patterns
   const anecdotalPatterns = [
-    /^my (girlfriend|boyfriend|wife|husband|partner|friend|mom|dad|sister|brother|family|dog|cat)/i,
+    /^my (girlfriend|boyfriend|wife|husband|partner|friend|mom|dad|mother|father|sister|brother|family|dog|cat|boss|coworker)/i,
+    /my (girlfriend|boyfriend|wife|husband|partner|mom|dad) .*(bought|gave|told|asked|showed|sent|made)/i,
     /^(i|we) (just|recently|finally|actually)/i,
     /^today (i|we|my)/i,
+    /^today i/i,
     /^yesterday (i|we|my)/i,
     /^last (night|week|month|year) (i|we|my)/i,
-    /^(i|we) (went|saw|met|had|got|made|did|tried|bought|found)/i,
+    /^(i|we) (went|saw|met|had|got|made|did|tried|bought|found|learned|discovered)/i,
     /(told me|asked me|gave me|bought me|showed me|sent me)/i,
     /^so basically/i,
     /^you know what/i,
     /^guess what/i,
+    /^i went to/i,
+    /^i saw/i,
   ];
 
   // Emotional statement patterns
   const emotionalPatterns = [
-    /^i('m| am| feel| felt) (so |really |very )?(happy|sad|angry|excited|nervous|anxious|scared|worried|tired|exhausted|confused|frustrated|grateful|thankful|blessed|lucky)/i,
-    /(made my day|broke my heart|can't believe|i love|i hate|i miss|i wish)/i,
-    /(feeling (good|bad|great|terrible|amazing|awful))/i,
+    /^i'm (so |really |very )?(happy|sad|angry|excited|nervous|anxious|scared|worried|tired|exhausted|confused|frustrated|grateful|thankful|blessed|lucky)/i,
+    /^i am (so |really |very )?(happy|sad|angry|excited|nervous|anxious|scared|worried|tired|exhausted|confused|frustrated|grateful|thankful|blessed|lucky)/i,
+    /^i feel/i,
+    /^i felt/i,
+    /i('m| am) feeling/i,
+    /(made my day|broke my heart|can't believe|i love this|i hate this|i miss|i wish)/i,
+    /(this made my day)/i,
+    /(feeling (good|bad|great|terrible|amazing|awful|sad|happy))/i,
     /^(omg|oh my god|wtf|lol|lmao|haha|bruh|bro|dude)/i,
+    /^lol/i,
+    /^haha/i,
+    /i can'?t believe/i,
   ];
 
   // Non-claim content patterns
   const nonClaimPatterns = [
-    /^(lol|lmao|haha|hehe|😂|🤣|💀|😭)+$/i,
-    /^[^\w\s]*$/,  // Only emojis/symbols
+    /^(lol|lmao|haha|hehe)+$/i,
+    /^[😂🤣💀😭\s]+$/,  // Only emojis
+    /^[\u{1F300}-\u{1F9FF}\s]*$/u,  // Only emojis/symbols
+    /^[^\w]*$/,  // Only symbols/punctuation
     /^(hi|hey|hello|sup|yo|what's up)/i,
     /^(thanks|thank you|thx|ty)/i,
-    /^(ok|okay|k|sure|yeah|yep|nope|nah)/i,
+    /^(ok|okay|k|sure|yeah|yep|nope|nah)$/i,
     /^(good morning|good night|gn|gm)/i,
   ];
 
@@ -109,15 +132,6 @@ export function detectPersonalStatement(text) {
         confidence: 75
       };
     }
-  }
-
-  // Check for very short text (likely not a claim)
-  if (lower.length < 10) {
-    return {
-      isPersonal: true,
-      reason: 'too short to be a factual claim',
-      confidence: 60
-    };
   }
 
   // Not detected as personal
