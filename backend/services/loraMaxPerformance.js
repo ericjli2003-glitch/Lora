@@ -389,34 +389,76 @@ function generateLoraMessage(analysis, overallCredibility, tikTokMode) {
   const factual = analysis.filter(a => a.classification === 'FACTUAL');
   const nonsense = analysis.filter(a => a.classification === 'NONSENSE');
   const personal = analysis.filter(a => a.classification === 'PERSONAL');
+  const checkable = [...factual, ...nonsense];
   
   let message = '';
   
-  if (tikTokMode) {
-    message += '🎵 detected chaotic tiktok-style content — segmented into individual claims\n\n';
+  // Handle mixed content (personal + factual)
+  const isMixed = personal.length > 0 && checkable.length > 0;
+  
+  if (isMixed) {
+    // Warm response to personal parts first
+    message += "💭 love the personal vibes! ";
+    
+    if (personal.some(p => p.segment.toLowerCase().includes('happy') || 
+                          p.segment.toLowerCase().includes('excited') ||
+                          p.segment.toLowerCase().includes('love'))) {
+      message += "sounds like you're having a good time 😊 ";
+    } else if (personal.some(p => p.segment.toLowerCase().includes('girlfriend') || 
+                                  p.segment.toLowerCase().includes('boyfriend') ||
+                                  p.segment.toLowerCase().includes('pizza'))) {
+      message += "that's sweet! ";
+    }
+    
+    message += "\n\nbut you also dropped some facts, so let me check those:\n\n";
+  } else if (tikTokMode) {
+    message += '🎵 detected chaotic tiktok-style content — let me break this down:\n\n';
   }
   
-  if (factual.length === 0 && nonsense.length === 0) {
-    message += "looks like this is all personal/emotional content — nothing to fact-check here 💭";
+  // If ALL personal, give warm response
+  if (checkable.length === 0) {
+    message = "looks like this is all personal/emotional content — nothing to fact-check here! ";
+    if (personal.some(p => p.segment.toLowerCase().includes('happy'))) {
+      message += "glad you're feeling good though 💭✨";
+    } else {
+      message += "hope you're doing well 💭";
+    }
     return message;
   }
   
+  // Fact-check results summary
   if (overallCredibility !== null) {
     if (overallCredibility >= 80) {
-      message += `✅ overall credibility: ${overallCredibility}% — looking pretty solid`;
+      message += `✅ fact-check result: ${overallCredibility}% credible — the facts check out!`;
     } else if (overallCredibility >= 50) {
-      message += `⚠️ overall credibility: ${overallCredibility}% — mixed signals, some things check out`;
+      message += `⚠️ fact-check result: ${overallCredibility}% credible — mixed results, some true some not`;
+    } else if (overallCredibility >= 20) {
+      message += `❌ fact-check result: ${overallCredibility}% credible — most of this doesn't hold up`;
     } else {
-      message += `❌ overall credibility: ${overallCredibility}% — most of this doesn't hold up`;
+      message += `🚫 fact-check result: ${overallCredibility}% credible — yeah these claims are false`;
     }
   }
   
-  if (nonsense.length > 0) {
-    message += `\n\n🦄 found ${nonsense.length} fantastical/impossible claim(s)`;
+  // Add specific callouts for notable false claims
+  const falseClaims = checkable.filter(c => c.credibility !== null && c.credibility < 30);
+  if (falseClaims.length > 0) {
+    message += `\n\n🔍 heads up on these:`;
+    for (const claim of falseClaims.slice(0, 3)) {
+      message += `\n   • "${claim.segment.substring(0, 50)}${claim.segment.length > 50 ? '...' : ''}" — ${claim.explanation || 'this is false'}`;
+    }
   }
   
-  if (personal.length > 0) {
-    message += `\n\n💭 skipped ${personal.length} personal segment(s)`;
+  // Add specific callouts for true claims
+  const trueClaims = checkable.filter(c => c.credibility !== null && c.credibility >= 70);
+  if (trueClaims.length > 0 && falseClaims.length > 0) {
+    message += `\n\n✓ but these are legit:`;
+    for (const claim of trueClaims.slice(0, 2)) {
+      message += `\n   • "${claim.segment.substring(0, 50)}${claim.segment.length > 50 ? '...' : ''}"`;
+    }
+  }
+  
+  if (nonsense.length > 0 && !isMixed) {
+    message += `\n\n🦄 found ${nonsense.length} fantastical claim(s) that can't be true`;
   }
   
   return message;

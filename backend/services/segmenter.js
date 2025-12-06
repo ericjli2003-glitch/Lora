@@ -122,35 +122,42 @@ export function normalizeForFactCheck(text) {
 function standardSegment(text) {
   const segments = [];
   
-  // Split by sentence boundaries
-  const sentences = text.split(/(?<=[.!?])\s+/);
+  // Pre-process: split by "Also did you know" and similar fact-introducers
+  const preprocessed = text
+    .replace(/\.\s*(also |and |but |oh and |plus )?did you know\s*/gi, '. [SPLIT] ')
+    .replace(/\.\s*(also |and |but )?fun fact:?\s*/gi, '. [SPLIT] ')
+    .replace(/\.\s*btw\s*/gi, '. [SPLIT] ');
+  
+  // Split by sentence boundaries AND our markers
+  const sentences = preprocessed.split(/(?<=[.!?])\s+|\[SPLIT\]/);
   
   for (const sentence of sentences) {
-    if (!sentence.trim()) continue;
+    const trimmed = sentence.trim();
+    if (!trimmed || trimmed.length < 5) continue;
     
     // Check if sentence mixes personal and factual content
-    const hasPersonal = /^(my|i |i'|we |our )/i.test(sentence);
-    const hasFactual = /(is|are|was|were|causes?|cures?|confirmed|proven|invented|discovered|failed|located|capital|made of)/i.test(sentence);
+    const hasPersonal = /^(my|i |i'|we |our )/i.test(trimmed);
+    const hasFactual = /(is|are|was|were|causes?|cures?|confirmed|proven|invented|discovered|failed|located|capital|made of|is in|tower|einstein|vaccine)/i.test(trimmed);
     
     // If it mixes both, try to split more aggressively
-    if (hasPersonal && hasFactual && sentence.length > 40) {
+    if (hasPersonal && hasFactual && trimmed.length > 40) {
       // Split by "Also", "And", "But", etc.
-      const parts = sentence.split(/\.\s*|\s+(?:also|and also|plus|but also|oh and)\s+/i);
+      const parts = trimmed.split(/\s+(?:also|and also|plus|but also|oh and|but)\s+/i);
       for (const part of parts) {
-        if (part.trim().length > 10) {
+        if (part.trim().length > 8) {
           segments.push(part.trim());
         }
       }
-    } else if (sentence.length > 100) {
+    } else if (trimmed.length > 100) {
       // Further split long sentences by major conjunctions
-      const clauses = sentence.split(/\s*(?:,\s*(?:and|but|or|however|although|because|since|while|whereas))\s*/i);
+      const clauses = trimmed.split(/\s*(?:,\s*(?:and|but|or|however|although|because|since|while|whereas))\s*/i);
       for (const clause of clauses) {
         if (clause.trim().length > 10) {
           segments.push(clause.trim());
         }
       }
     } else {
-      segments.push(sentence.trim());
+      segments.push(trimmed);
     }
   }
   
