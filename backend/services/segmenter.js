@@ -1,0 +1,249 @@
+/**
+ * Lora Max Performance - Input Segmenter
+ * 
+ * Splits ANY input into minimal atomic truth-segments.
+ * Handles TikTok mode for chaotic, slang-filled content.
+ */
+
+// =============================================================================
+// TIKTOK MODE DETECTION
+// =============================================================================
+
+const TIKTOK_INDICATORS = {
+  // Emoji density threshold
+  emojiRatio: 0.05,
+  // Slang words
+  slang: /\b(fr|ngl|ong|lowkey|highkey|bussin|cap|nocap|no cap|slay|fire|lit|vibes|sus|bet|fam|bruh|sis|periodt|snatched|tea|stan|simp|vibe check|main character|rent free|understood the assignment)\b/gi,
+  // Chaotic punctuation
+  chaoticPunctuation: /[!?]{2,}|\.{3,}|~+/g,
+  // Run-on sentences (very long without proper punctuation)
+  runOnThreshold: 150,
+  // Hype phrases
+  hype: /\b(you won't believe|wait for it|plot twist|breaking|exposed|leaked|confirmed|proof that|this is why|watch till the end)\b/gi
+};
+
+/**
+ * Detect if input is TikTok-style chaotic content
+ */
+export function detectTikTokMode(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  let score = 0;
+  
+  // Check emoji density
+  const emojiCount = (text.match(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]/gu) || []).length;
+  if (emojiCount / text.length > TIKTOK_INDICATORS.emojiRatio) score += 2;
+  
+  // Check slang
+  const slangMatches = text.match(TIKTOK_INDICATORS.slang) || [];
+  if (slangMatches.length >= 2) score += 2;
+  
+  // Check chaotic punctuation
+  if (TIKTOK_INDICATORS.chaoticPunctuation.test(text)) score += 1;
+  
+  // Check for run-on sentences
+  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+  const hasRunOn = sentences.some(s => s.length > TIKTOK_INDICATORS.runOnThreshold);
+  if (hasRunOn) score += 1;
+  
+  // Check hype phrases
+  if (TIKTOK_INDICATORS.hype.test(text)) score += 2;
+  
+  return {
+    isTikTok: score >= 3,
+    score,
+    indicators: {
+      emojiCount,
+      slangMatches: slangMatches.length,
+      hasChaoticPunctuation: TIKTOK_INDICATORS.chaoticPunctuation.test(text),
+      hasRunOn,
+      hasHype: TIKTOK_INDICATORS.hype.test(text)
+    }
+  };
+}
+
+// =============================================================================
+// TEXT NORMALIZATION
+// =============================================================================
+
+// Common typo corrections for fact-checking
+const TYPO_MAP = {
+  'piza': 'pizza',
+  'grren': 'green',
+  'teh': 'the',
+  'adn': 'and',
+  'becuase': 'because',
+  'goverment': 'government',
+  'definately': 'definitely',
+  'occured': 'occurred',
+  'recieve': 'receive',
+  'seperate': 'separate',
+  'thier': 'their',
+  'untill': 'until',
+  'wierd': 'weird',
+  'vaccum': 'vacuum',
+  'neccessary': 'necessary',
+  'accomodate': 'accommodate',
+  'millenial': 'millennial',
+  'occassion': 'occasion',
+  'restaraunt': 'restaurant'
+};
+
+/**
+ * Normalize text for fact-checking (preserves original for display)
+ */
+export function normalizeForFactCheck(text) {
+  if (!text) return '';
+  
+  let normalized = text.toLowerCase().trim();
+  
+  // Fix common typos
+  for (const [typo, correct] of Object.entries(TYPO_MAP)) {
+    normalized = normalized.replace(new RegExp(`\\b${typo}\\b`, 'gi'), correct);
+  }
+  
+  // Remove excessive whitespace
+  normalized = normalized.replace(/\s+/g, ' ');
+  
+  // Remove emoji for matching purposes
+  normalized = normalized.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]/gu, '');
+  
+  return normalized.trim();
+}
+
+// =============================================================================
+// SEGMENTATION LOGIC
+// =============================================================================
+
+/**
+ * Standard segmentation by sentence/clause boundaries
+ */
+function standardSegment(text) {
+  const segments = [];
+  
+  // Split by sentence boundaries
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  
+  for (const sentence of sentences) {
+    if (!sentence.trim()) continue;
+    
+    // Further split by major conjunctions if sentence is complex
+    if (sentence.length > 100) {
+      const clauses = sentence.split(/\s*(?:,\s*(?:and|but|or|however|although|because|since|while|whereas))\s*/i);
+      for (const clause of clauses) {
+        if (clause.trim().length > 10) {
+          segments.push(clause.trim());
+        }
+      }
+    } else {
+      segments.push(sentence.trim());
+    }
+  }
+  
+  return segments;
+}
+
+/**
+ * Aggressive TikTok-style segmentation
+ */
+function tikTokSegment(text) {
+  const segments = [];
+  
+  // First, split by obvious boundaries
+  let chunks = text
+    // Split by emoji clusters
+    .split(/([\u{1F300}-\u{1F9FF}][\u{1F300}-\u{1F9FF}]*)/u)
+    // Split by line breaks
+    .flatMap(chunk => chunk.split(/\n+/))
+    // Split by sentence endings
+    .flatMap(chunk => chunk.split(/(?<=[.!?])\s*/))
+    // Split by hype markers
+    .flatMap(chunk => chunk.split(/(?:wait for it|plot twist|breaking|but like|and then|so basically|okay so)/i));
+  
+  for (let chunk of chunks) {
+    chunk = chunk.trim();
+    if (!chunk || chunk.length < 5) continue;
+    
+    // Skip pure emoji chunks
+    if (/^[\u{1F300}-\u{1F9FF}\s]+$/u.test(chunk)) continue;
+    
+    // Further split long chunks by commas and conjunctions
+    if (chunk.length > 80) {
+      const subChunks = chunk.split(/\s*[,;]\s*|\s+(?:and|but|or|like|cuz|cause|bc)\s+/i);
+      for (const sub of subChunks) {
+        if (sub.trim().length > 10) {
+          segments.push(sub.trim());
+        }
+      }
+    } else if (chunk.length > 10) {
+      segments.push(chunk);
+    }
+  }
+  
+  return segments;
+}
+
+// =============================================================================
+// MAIN EXPORT
+// =============================================================================
+
+/**
+ * Segment input into atomic truth-claims
+ * @param {string} text - Raw input text
+ * @param {Object} options - Segmentation options
+ * @returns {{ segments: string[], tikTokMode: boolean, metadata: Object }}
+ */
+export function segmentInput(text, options = {}) {
+  if (!text || typeof text !== 'string') {
+    return { segments: [], tikTokMode: false, metadata: {} };
+  }
+  
+  const startTime = performance.now();
+  
+  // Detect TikTok mode
+  const tikTokDetection = options.forceTikTok ? 
+    { isTikTok: true, score: 10, indicators: {} } : 
+    detectTikTokMode(text);
+  
+  // Choose segmentation strategy
+  const rawSegments = tikTokDetection.isTikTok ? 
+    tikTokSegment(text) : 
+    standardSegment(text);
+  
+  // Deduplicate and clean
+  const seen = new Set();
+  const segments = [];
+  
+  for (const seg of rawSegments) {
+    const normalized = normalizeForFactCheck(seg);
+    if (normalized.length > 5 && !seen.has(normalized)) {
+      seen.add(normalized);
+      segments.push({
+        original: seg,
+        normalized,
+        length: seg.length
+      });
+    }
+  }
+  
+  const elapsed = performance.now() - startTime;
+  
+  return {
+    segments,
+    tikTokMode: tikTokDetection.isTikTok,
+    metadata: {
+      inputLength: text.length,
+      segmentCount: segments.length,
+      tikTokScore: tikTokDetection.score,
+      indicators: tikTokDetection.indicators,
+      segmentationTimeMs: elapsed.toFixed(2)
+    }
+  };
+}
+
+export default {
+  segmentInput,
+  detectTikTokMode,
+  normalizeForFactCheck
+};
+

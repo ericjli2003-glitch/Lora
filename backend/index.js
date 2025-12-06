@@ -30,6 +30,11 @@ import {
   clearCaches,
   ULTRA_SPEED_CONFIG 
 } from './services/ultraSpeed.js';
+import { 
+  runMaxPerformancePipeline, 
+  getMemoryStats,
+  MAX_PERFORMANCE_CONFIG 
+} from './services/loraMaxPerformance.js';
 import logger from './services/logger.js';
 
 dotenv.config();
@@ -1222,6 +1227,100 @@ function getSources(verdict, claim) {
 }
 
 // =============================================================================
+// POST /api/check-max - Maximum Performance Fact-Checking (TikTok Mode)
+// =============================================================================
+
+app.post('/api/check-max', async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { text, input, tiktok, speedMode } = req.body;
+    const inputText = text || input;
+    
+    if (!inputText || typeof inputText !== 'string' || inputText.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'give me something to check! send text or input in the body'
+      });
+    }
+    
+    logger.info(`[check-max] Processing ${inputText.length} chars, tiktok=${!!tiktok}`);
+    
+    // Run the max performance pipeline
+    const result = await runMaxPerformancePipeline(inputText, {
+      forceTikTok: !!tiktok,
+      speedMode: speedMode !== false
+    });
+    
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: result.error || 'something went wrong'
+      });
+    }
+    
+    // Format response
+    res.json({
+      success: true,
+      
+      // Mode info
+      mode: result.mode,
+      tikTokMode: result.tikTokMode,
+      
+      // Summary
+      summary: result.summary,
+      overallCredibility: result.summary.overallCredibility,
+      
+      // Detailed segment analysis
+      segments: result.analysis,
+      
+      // Human-readable message
+      loraMessage: result.loraMessage,
+      
+      // Performance metrics
+      latency: {
+        ...result.timings,
+        totalMs: Date.now() - startTime
+      },
+      
+      // Memory stats
+      memory: result.memory,
+      
+      // Action marker
+      actionComplete: result.actionComplete
+    });
+    
+  } catch (error) {
+    logger.error('[check-max] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'something broke on max performance check',
+      details: error.message
+    });
+  }
+});
+
+// =============================================================================
+// GET /api/memory-stats - Get agentic memory statistics
+// =============================================================================
+
+app.get('/api/memory-stats', (req, res) => {
+  try {
+    const stats = getMemoryStats();
+    res.json({
+      success: true,
+      memory: stats,
+      message: `memory holding ${stats.size} claims (${stats.hitRate} hit rate)`
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'could not get memory stats'
+    });
+  }
+});
+
+// =============================================================================
 // Start server
 // =============================================================================
 
@@ -1230,6 +1329,7 @@ app.listen(PORT, () => {
   console.log(`\n🌐 Web UI: http://localhost:${PORT}`);
   console.log(`\n📡 API Endpoints:`);
   console.log(`   POST /api/check            - Fact-check text (multi-AI consensus)`);
+  console.log(`   POST /api/check-max        - MAX PERFORMANCE fact-check (TikTok mode, memory, batching)`);
   console.log(`   POST /api/check-image      - Fact-check image/screenshot (Gemini + multi-AI)`);
   console.log(`   POST /api/check-url        - Fact-check news article URL`);
   console.log(`   POST /api/check-video      - Fact-check video (Gemini vision)`);
@@ -1241,6 +1341,8 @@ app.listen(PORT, () => {
   console.log(`   POST /analyze              - Smart auto-detect (personal vs factual vs comments)`);
   console.log(`   POST /api/chat             - General LLM chat`);
   console.log(`   POST /api/task             - Task processing (summarize, translate, extract)`);
+  console.log(`   GET  /api/memory-stats     - Agentic memory statistics`);
   console.log(`   GET  /health               - Health check`);
+  console.log(`\n⚡ MAX PERFORMANCE MODE: Use /api/check-max for TikTok-style chaotic content`);
   console.log(`\n✨ All done! Let me know if you want to analyze something else.\n`);
 });
