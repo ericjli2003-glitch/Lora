@@ -5,36 +5,63 @@
  * - PERSONAL: relationships, feelings, subjective states
  * - FACTUAL: verifiable external facts
  * - NONSENSE: impossible/fantastical claims (still fact-checkable, score ~0)
+ * 
+ * IMPORTANT: Factual claims ALWAYS override personal indicators!
+ * "My doctor told me bleach cures COVID" → FACTUAL (the claim is checkable)
  */
 
 // =============================================================================
 // CLASSIFICATION PATTERNS
 // =============================================================================
 
-// PERSONAL: Unverifiable internal/relational content
+// FACTUAL OVERRIDE: These patterns ALWAYS trigger fact-checking regardless of personal markers
+const FACTUAL_OVERRIDE_PATTERNS = [
+  // Scientific claims
+  /(scientist|study|research|proven|confirmed|discovered|evidence shows)/i,
+  /(causes?|cures?|prevents?|treats?) .{3,30}(cancer|covid|disease|illness|virus)/i,
+  
+  // Health misinformation red flags
+  /(vaccine|vaccination|ivermectin|hydroxychloroquine|bleach|miracle cure)/i,
+  /(drinking|injecting|taking) .{0,20} (cures?|kills?|prevents?)/i,
+  
+  // Geographic/historical claims
+  /(is|are|was|were) (in|the capital of|located in|built in|founded in)/i,
+  /(tower|wall|building|monument|landmark) .{0,30} (in|is in|located)/i,
+  
+  // Famous people claims
+  /(einstein|newton|tesla|edison|shakespeare|mozart|picasso|darwin) .{0,30} (failed|invented|discovered|said|wrote|created|was|did)/i,
+  
+  // Astronomical/scientific facts
+  /(moon|sun|earth|mars|planet|star) .{0,30} (is|are|made of|consists of)/i,
+  /(flat earth|round earth|globe|space|nasa)/i,
+  
+  // Statistics and numbers
+  /\b\d+(\.\d+)?%\s+(of|increase|decrease|rise|fall|drop)/i,
+  
+  // Definitive truth claims
+  /(is (actually|really|truly)|the truth is|fact is|did you know)/i,
+  /(visible from space|can be seen from)/i,
+];
+
+// PERSONAL: Unverifiable internal/relational content (ONLY if no factual override)
 const PERSONAL_PATTERNS = [
-  // First-person feelings/states
-  /^i('m| am| feel| felt| think| believe| hope| wish| want| need| love| hate| like| prefer)/i,
-  /^(my|our) (girlfriend|boyfriend|wife|husband|partner|friend|mom|dad|family|cat|dog|pet|boss|coworker)/i,
+  // First-person feelings ONLY (not claims about the world)
+  /^i('m| am) (so )?(happy|sad|excited|tired|hungry|bored|confused)$/i,
+  /^i feel (so )?(happy|sad|good|bad|great|terrible)/i,
   
-  // Subjective experiences
-  /(makes me feel|made me feel|i experienced|my experience)/i,
-  /^(today|yesterday|last night|this morning) (i|we|my)/i,
+  // Pure personal anecdotes without factual claims
+  /^(my|our) (girlfriend|boyfriend|wife|husband|partner|friend|mom|dad) (bought|gave|made|sent|texted|called|hugged|kissed)/i,
   
-  // Opinions
-  /^(in my opinion|imo|personally|i think that|i believe that)/i,
-  /(is (the )?(best|worst|overrated|underrated)|my favorite)/i,
+  // Pure opinions without external claims
+  /^(in my opinion|imo|personally,? i think)$/i,
+  /^i (love|hate|like|prefer) (this|that|it)$/i,
   
-  // Relational/emotional content
-  /(told me|asked me|gave me|showed me|texted me|called me)/i,
-  /(so (happy|sad|excited|nervous|anxious|proud|grateful))/i,
+  // Short reactions ONLY
+  /^(lol|lmao|haha|omg|wtf|bruh|same|mood|slay|periodt|yass|oof)$/i,
+  /^[😂🤣💀😭❤️🔥👀✨🎉💯]+$/,
   
-  // Short reactions
-  /^(lol|lmao|haha|omg|wtf|bruh|same|mood|vibes?|slay|periodt)$/i,
-  /^[😂🤣💀😭❤️🔥👀✨]+$/,
-  
-  // Questions
-  /^(what do you think|thoughts\?|anyone else|am i the only)/i,
+  // Questions that are just asking
+  /^(what do you think|thoughts\?|anyone else feel this|am i the only one)$/i,
 ];
 
 // NONSENSE: Fantastical/impossible claims
@@ -92,16 +119,24 @@ export function classifySegment(segment) {
   const text = segment.original || segment;
   const normalized = segment.normalized || text.toLowerCase().trim();
   
-  // Check length - very short is usually personal/reaction
-  if (normalized.length < 15) {
-    return {
-      type: 'PERSONAL',
-      confidence: 80,
-      reason: 'too short to be a factual claim'
-    };
+  // =========================================
+  // STEP 1: Check FACTUAL OVERRIDES FIRST
+  // These ALWAYS trigger fact-checking!
+  // =========================================
+  for (const pattern of FACTUAL_OVERRIDE_PATTERNS) {
+    if (pattern.test(text)) {
+      return {
+        type: 'FACTUAL',
+        confidence: 95,
+        reason: 'contains verifiable claim that must be fact-checked'
+      };
+    }
   }
   
-  // Check NONSENSE first (fantastical claims)
+  // =========================================
+  // STEP 2: Check NONSENSE (fantastical claims)
+  // Still fact-checkable, just score ~0
+  // =========================================
   for (const pattern of NONSENSE_PATTERNS) {
     if (pattern.test(text)) {
       return {
@@ -112,30 +147,22 @@ export function classifySegment(segment) {
     }
   }
   
-  // Check PERSONAL patterns
-  for (const pattern of PERSONAL_PATTERNS) {
-    if (pattern.test(text)) {
-      return {
-        type: 'PERSONAL',
-        confidence: 85,
-        reason: 'subjective/personal content'
-      };
-    }
-  }
+  // =========================================
+  // STEP 3: Check for claim-like content
+  // Any statement about the external world
+  // =========================================
   
   // Check for FACTUAL indicators
   let factualScore = 0;
-  const matchedIndicators = [];
   
   for (const pattern of FACTUAL_INDICATORS) {
     if (pattern.test(text)) {
-      factualScore += 20;
-      matchedIndicators.push(pattern.source.substring(0, 30));
+      factualScore += 25;
     }
   }
   
   // Strong factual indicators
-  if (factualScore >= 40) {
+  if (factualScore >= 25) {
     return {
       type: 'FACTUAL',
       confidence: Math.min(95, 60 + factualScore),
@@ -144,20 +171,55 @@ export function classifySegment(segment) {
   }
   
   // Check for claim-like structure (X is Y, X causes Y, etc.)
-  const claimStructure = /\b(is|are|was|were|has|have|had|can|will|does|do|did|causes?|leads? to|results? in)\b/i;
-  if (claimStructure.test(text) && normalized.length > 30) {
+  const claimStructure = /\b(is|are|was|were|has|have|causes?|cures?|prevents?|leads? to|results? in|made of|located in|built in|invented|discovered|failed|confirmed)\b/i;
+  if (claimStructure.test(text) && normalized.length > 20) {
     return {
       type: 'FACTUAL',
-      confidence: 65,
+      confidence: 70,
       reason: 'statement structure suggests factual claim'
     };
   }
   
-  // Default: lean toward personal for ambiguous content
+  // =========================================
+  // STEP 4: Check PERSONAL (only pure personal)
+  // =========================================
+  
+  // Very short content without claim structure
+  if (normalized.length < 15) {
+    return {
+      type: 'PERSONAL',
+      confidence: 75,
+      reason: 'too short to be a factual claim'
+    };
+  }
+  
+  // Check pure personal patterns
+  for (const pattern of PERSONAL_PATTERNS) {
+    if (pattern.test(text)) {
+      return {
+        type: 'PERSONAL',
+        confidence: 80,
+        reason: 'subjective/personal content'
+      };
+    }
+  }
+  
+  // =========================================
+  // STEP 5: Default - lean toward FACTUAL
+  // When in doubt, fact-check it!
+  // =========================================
+  if (normalized.length > 25) {
+    return {
+      type: 'FACTUAL',
+      confidence: 55,
+      reason: 'defaulting to factual - when in doubt, check it'
+    };
+  }
+  
   return {
     type: 'PERSONAL',
     confidence: 50,
-    reason: 'ambiguous - defaulting to personal'
+    reason: 'ambiguous short content'
   };
 }
 

@@ -117,6 +117,7 @@ export function normalizeForFactCheck(text) {
 
 /**
  * Standard segmentation by sentence/clause boundaries
+ * Optimized to isolate personal from factual claims
  */
 function standardSegment(text) {
   const segments = [];
@@ -127,8 +128,21 @@ function standardSegment(text) {
   for (const sentence of sentences) {
     if (!sentence.trim()) continue;
     
-    // Further split by major conjunctions if sentence is complex
-    if (sentence.length > 100) {
+    // Check if sentence mixes personal and factual content
+    const hasPersonal = /^(my|i |i'|we |our )/i.test(sentence);
+    const hasFactual = /(is|are|was|were|causes?|cures?|confirmed|proven|invented|discovered|failed|located|capital|made of)/i.test(sentence);
+    
+    // If it mixes both, try to split more aggressively
+    if (hasPersonal && hasFactual && sentence.length > 40) {
+      // Split by "Also", "And", "But", etc.
+      const parts = sentence.split(/\.\s*|\s+(?:also|and also|plus|but also|oh and)\s+/i);
+      for (const part of parts) {
+        if (part.trim().length > 10) {
+          segments.push(part.trim());
+        }
+      }
+    } else if (sentence.length > 100) {
+      // Further split long sentences by major conjunctions
       const clauses = sentence.split(/\s*(?:,\s*(?:and|but|or|however|although|because|since|while|whereas))\s*/i);
       for (const clause of clauses) {
         if (clause.trim().length > 10) {
@@ -145,20 +159,30 @@ function standardSegment(text) {
 
 /**
  * Aggressive TikTok-style segmentation
+ * Key principle: ALWAYS split to isolate factual claims from personal statements
  */
 function tikTokSegment(text) {
   const segments = [];
   
   // First, split by obvious boundaries
   let chunks = text
-    // Split by emoji clusters
-    .split(/([\u{1F300}-\u{1F9FF}][\u{1F300}-\u{1F9FF}]*)/u)
+    // Split by emoji clusters (but don't lose text)
+    .replace(/([\u{1F300}-\u{1F9FF}]+)/gu, ' |SPLIT| ')
+    .split('|SPLIT|')
     // Split by line breaks
     .flatMap(chunk => chunk.split(/\n+/))
     // Split by sentence endings
     .flatMap(chunk => chunk.split(/(?<=[.!?])\s*/))
     // Split by hype markers
-    .flatMap(chunk => chunk.split(/(?:wait for it|plot twist|breaking|but like|and then|so basically|okay so)/i));
+    .flatMap(chunk => chunk.split(/(?:wait for it|plot twist|breaking|but like|and then|so basically|okay so|also|and also|plus|oh and)/i))
+    // Split by "and" when it separates distinct claims
+    .flatMap(chunk => {
+      // If chunk contains "and" + factual indicator, split it
+      if (/\band\b.{5,}(is|are|was|were|causes?|cures?|confirmed|proven)/i.test(chunk)) {
+        return chunk.split(/\s+and\s+/i);
+      }
+      return [chunk];
+    });
   
   for (let chunk of chunks) {
     chunk = chunk.trim();
@@ -167,15 +191,19 @@ function tikTokSegment(text) {
     // Skip pure emoji chunks
     if (/^[\u{1F300}-\u{1F9FF}\s]+$/u.test(chunk)) continue;
     
+    // Skip pure slang/filler
+    if (/^(fr|fr fr|no cap|ngl|ong|lowkey|highkey|like|literally|basically)$/i.test(chunk)) continue;
+    
     // Further split long chunks by commas and conjunctions
-    if (chunk.length > 80) {
-      const subChunks = chunk.split(/\s*[,;]\s*|\s+(?:and|but|or|like|cuz|cause|bc)\s+/i);
+    if (chunk.length > 60) {
+      const subChunks = chunk.split(/\s*[,;]\s*|\s+(?:but|or|also|plus)\s+/i);
       for (const sub of subChunks) {
-        if (sub.trim().length > 10) {
-          segments.push(sub.trim());
+        const cleaned = sub.trim();
+        if (cleaned.length > 8) {
+          segments.push(cleaned);
         }
       }
-    } else if (chunk.length > 10) {
+    } else if (chunk.length > 8) {
       segments.push(chunk);
     }
   }
