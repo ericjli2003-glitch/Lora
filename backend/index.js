@@ -35,6 +35,7 @@ import {
   getMemoryStats,
   MAX_PERFORMANCE_CONFIG 
 } from './services/loraMaxPerformance.js';
+import { runUnifiedPipeline } from './services/loraUnified.js';
 import logger from './services/logger.js';
 
 dotenv.config();
@@ -1227,75 +1228,70 @@ function getSources(verdict, claim) {
 }
 
 // =============================================================================
-// POST /api/check-max - Maximum Performance Fact-Checking (TikTok Mode)
+// POST /api/check-max - ULTRA-FAST Unified Pipeline (Single LLM Call)
 // =============================================================================
 
 app.post('/api/check-max', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const { text, input, tiktok, speedMode } = req.body;
+    const { text, input } = req.body;
     const inputText = text || input;
     
     if (!inputText || typeof inputText !== 'string' || inputText.trim().length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'give me something to check! send text or input in the body'
+        errorType: 'empty_input'
       });
     }
     
-    logger.info(`[check-max] Processing ${inputText.length} chars, tiktok=${!!tiktok}`);
-    
-    // Run the max performance pipeline
-    const result = await runMaxPerformancePipeline(inputText, {
-      forceTikTok: !!tiktok,
-      speedMode: speedMode !== false
-    });
+    // Run UNIFIED pipeline (single LLM call - ~1-2s instead of 4-5s)
+    const result = await runUnifiedPipeline(inputText);
     
     if (!result.success) {
       return res.status(400).json({
         success: false,
-        error: result.error || 'something went wrong'
+        errorType: result.errorType
       });
     }
     
-    // Format response
+    // Response
     res.json({
       success: true,
-      
-      // Mode info
       mode: result.mode,
-      tikTokMode: result.tikTokMode,
       
       // Summary
       summary: result.summary,
-      overallCredibility: result.summary.overallCredibility,
+      overallCredibility: result.summary?.overallCredibility,
       
-      // Detailed segment analysis
+      // Responses (LLM-generated)
+      personalResponse: result.personalResponse,
+      factCheckResponse: result.factCheckResponse,
+      loraMessage: result.loraMessage,
+      siriResponse: result.siriResponse,
+      
+      // Harmful warning
+      harmfulWarning: result.harmfulWarning,
+      
+      // Detailed segments
       segments: result.analysis,
       
-      // Human-readable message
-      loraMessage: result.loraMessage,
-      
-      // Performance metrics
+      // Performance
       latency: {
-        ...result.timings,
+        pipelineMs: result.timings?.totalMs,
+        llmCalls: result.timings?.llmCalls || 1,
         totalMs: Date.now() - startTime
       },
       
-      // Memory stats
-      memory: result.memory,
-      
-      // Action marker
-      actionComplete: result.actionComplete
+      // Cache info
+      fromCache: result.fromCache || false
     });
     
   } catch (error) {
-    logger.error('[check-max] Error:', error);
+    console.error('[check-max] Error:', error);
     res.status(500).json({
       success: false,
-      error: 'something broke on max performance check',
-      details: error.message
+      errorType: 'server_error'
     });
   }
 });
