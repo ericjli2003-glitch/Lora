@@ -10,7 +10,7 @@
  */
 
 import { segmentInput, detectTikTokMode } from './segmenter.js';
-import { classifyBatch, getCheckableSegments } from './claimClassifier.js';
+import { classifySemanticBatch, getCheckableSegments, hasHarmfulContent } from './semanticClassifier.js';
 import { batchLookup, batchStore, getMemoryStats } from './claimMemory.js';
 import logger from './logger.js';
 
@@ -280,11 +280,14 @@ export async function runMaxPerformancePipeline(input, options = {}) {
   const segments = segmentation.segments.slice(0, CONFIG.MAX_SEGMENTS);
   
   // ===================
-  // STEP 2: CLASSIFY
+  // STEP 2: CLASSIFY (Semantic - LLM-based, no regex)
   // ===================
   const classifyStart = performance.now();
-  const classification = classifyBatch(segments);
+  const classification = await classifySemanticBatch(segments);
   timings.classifyMs = (performance.now() - classifyStart).toFixed(2);
+  
+  // Check for harmful content
+  const containsHarmful = hasHarmfulContent(classification);
   
   // ===================
   // STEP 3: FACT-CHECK
@@ -311,6 +314,7 @@ export async function runMaxPerformancePipeline(input, options = {}) {
     const base = {
       segment: segment.segment,
       classification: segment.type,
+      classificationReason: segment.reason,
       factCheck: segment.type !== 'PERSONAL',
     };
     
@@ -328,12 +332,23 @@ export async function runMaxPerformancePipeline(input, options = {}) {
       r => r.normalized === segment.normalized || r.segment === segment.segment
     );
     
+    // Handle different classification types
+    let defaultCredibility = 50;
+    let defaultExplanation = 'could not verify';
+    
+    if (segment.type === 'NONSENSE') {
+      defaultCredibility = 2;
+      defaultExplanation = 'fantastical claim — contradicts physical reality';
+    } else if (segment.type === 'HARMFUL') {
+      defaultCredibility = 5;
+      defaultExplanation = '⚠️ potentially harmful misinformation — please verify with trusted sources';
+    }
+    
     return {
       ...base,
-      credibility: result?.credibility ?? (segment.type === 'NONSENSE' ? 2 : 50),
+      credibility: result?.credibility ?? defaultCredibility,
       source: result?.fromMemory ? 'memory' : 'fresh',
-      explanation: result?.explanation ?? 
-        (segment.type === 'NONSENSE' ? 'fantastical claim — very unlikely to be true' : 'could not verify')
+      explanation: result?.explanation ?? defaultExplanation
     };
   });
   
@@ -347,6 +362,9 @@ export async function runMaxPerformancePipeline(input, options = {}) {
   // Calculate overall credibility (only for factual segments)
   const factualResults = analysis.filter(a => a.credibility !== null);
   const personalResults = analysis.filter(a => a.classification === 'PERSONAL');
+  const harmfulResults = analysis.filter(a => a.classification === 'HARMFUL');
+  const nonsenseResults = analysis.filter(a => a.classification === 'NONSENSE');
+  
   const overallCredibility = factualResults.length > 0 ?
     Math.round(factualResults.reduce((sum, a) => sum + a.credibility, 0) / factualResults.length) :
     null;
@@ -354,9 +372,12 @@ export async function runMaxPerformancePipeline(input, options = {}) {
   // Determine mode
   const hasPersonal = personalResults.length > 0;
   const hasFactual = factualResults.length > 0;
+  const hasHarmful = harmfulResults.length > 0;
   let mode;
   
-  if (hasPersonal && hasFactual) {
+  if (hasHarmful) {
+    mode = 'harmful_detected'; // Priority: flag dangerous content
+  } else if (hasPersonal && hasFactual) {
     mode = 'mixed'; // Personal + Factual
   } else if (hasPersonal) {
     mode = 'personal';
@@ -368,7 +389,7 @@ export async function runMaxPerformancePipeline(input, options = {}) {
   
   // Generate separate responses for mixed mode
   const personalResponse = hasPersonal ? generatePersonalResponse(personalResults) : null;
-  const factCheckResponse = hasFactual ? generateFactCheckResponse(factualResults, overallCredibility) : null;
+  const factCheckResponse = hasFactual ? generateFactCheckResponse(factualResults, overallCredibility, harmfulResults) : null;
   
   return {
     success: true,
@@ -381,10 +402,18 @@ export async function runMaxPerformancePipeline(input, options = {}) {
       personal: classification.stats.personal,
       factual: classification.stats.factual,
       nonsense: classification.stats.nonsense,
+      harmful: classification.stats.harmful || 0,
       checkedFromMemory: factCheckResults.stats.fromMemory || 0,
       freshChecked: factCheckResults.stats.freshChecked || 0,
       overallCredibility
     },
+    
+    // Harmful content warning
+    harmfulWarning: hasHarmful ? {
+      detected: true,
+      message: "⚠️ This contains potentially harmful misinformation. Please verify with trusted sources.",
+      claims: harmfulResults.map(h => h.segment)
+    } : null,
     
     // For mixed mode: separate responses
     personalResponse,
@@ -402,7 +431,10 @@ export async function runMaxPerformancePipeline(input, options = {}) {
     loraMessage: generateLoraMessage(analysis, overallCredibility, segmentation.tikTokMode),
     
     // Siri-optimized spoken response (short, natural, speakable)
-    siriResponse: generateSiriResponse(mode, personalResponse, factCheckResponse, overallCredibility),
+    siriResponse: generateSiriResponse(mode, personalResponse, factCheckResponse, overallCredibility, hasHarmful ? {
+      detected: true,
+      claims: harmfulResults.map(h => h.segment)
+    } : null),
     
     // Action complete marker
     actionComplete: 'Lora AI (Max Performance Edition) executed.'
@@ -447,7 +479,7 @@ function generatePersonalResponse(personalSegments) {
 /**
  * Generate fact-check response for factual segments
  */
-function generateFactCheckResponse(factualResults, overallCredibility) {
+function generateFactCheckResponse(factualResults, overallCredibility, harmfulResults = []) {
   const trueClaims = factualResults.filter(f => f.credibility >= 70);
   const falseClaims = factualResults.filter(f => f.credibility < 30);
   const mixedClaims = factualResults.filter(f => f.credibility >= 30 && f.credibility < 70);
@@ -455,7 +487,11 @@ function generateFactCheckResponse(factualResults, overallCredibility) {
   let verdict;
   let message;
   
-  if (overallCredibility >= 80) {
+  // Priority: harmful content
+  if (harmfulResults.length > 0) {
+    verdict = 'HARMFUL';
+    message = "⚠️ contains potentially harmful misinformation";
+  } else if (overallCredibility >= 80) {
     verdict = 'TRUE';
     message = "these facts check out! ✅";
   } else if (overallCredibility >= 60) {
@@ -479,7 +515,8 @@ function generateFactCheckResponse(factualResults, overallCredibility) {
     breakdown: {
       true: trueClaims.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation })),
       false: falseClaims.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation })),
-      mixed: mixedClaims.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation }))
+      mixed: mixedClaims.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation })),
+      harmful: harmfulResults.map(c => ({ claim: c.segment, credibility: c.credibility, explanation: c.explanation }))
     },
     totalChecked: factualResults.length
   };
@@ -489,7 +526,19 @@ function generateFactCheckResponse(factualResults, overallCredibility) {
  * Generate Siri-optimized spoken response
  * Short, natural, easy to speak aloud
  */
-function generateSiriResponse(mode, personalResponse, factCheckResponse, overallCredibility) {
+function generateSiriResponse(mode, personalResponse, factCheckResponse, overallCredibility, harmfulWarning) {
+  // HARMFUL - Priority warning
+  if (mode === 'harmful_detected' || harmfulWarning?.detected) {
+    let siri = "Warning! This contains dangerous misinformation. ";
+    if (harmfulWarning?.claims?.[0]) {
+      const claim = harmfulWarning.claims[0].substring(0, 50);
+      siri += `"${claim}" could be harmful. Please check trusted sources.`;
+    } else {
+      siri += "Please verify this with a doctor or trusted source before acting on it.";
+    }
+    return siri;
+  }
+  
   // Pure personal - warm and brief
   if (mode === 'personal') {
     return personalResponse?.message || "That sounds nice! Nothing to fact-check there.";
